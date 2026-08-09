@@ -34,8 +34,11 @@ import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.GridLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -48,7 +51,6 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.BufferedReader
 import java.io.File
-import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -66,6 +68,10 @@ class MainActivity : AppCompatActivity() {
 
     private var floatingLogView: View? = null
     private var tvFloatingLog: TextView? = null
+    
+    // 性能优化：日志缓存队列
+    private val logBuffer = mutableListOf<String>()
+    private val uiHandler = Handler(Looper.getMainLooper())
 
     companion object {
         private var virtualDisplay: VirtualDisplay? = null
@@ -130,6 +136,24 @@ class MainActivity : AppCompatActivity() {
 
         startLogcatListener()
         initGlobalVirtualDisplay()
+        
+        // 启动 UI 刷新定时器（500ms一次，极大缓解卡顿）
+        startUiUpdateTimer()
+    }
+
+    private fun startUiUpdateTimer() {
+        uiHandler.postDelayed(object : Runnable {
+            override fun run() {
+                if (tvFloatingLog != null && logBuffer.isNotEmpty()) {
+                    synchronized(logBuffer) {
+                        val text = logBuffer.joinToString("\n")
+                        tvFloatingLog?.text = text
+                        logBuffer.clear()
+                    }
+                }
+                uiHandler.postDelayed(this, 500)
+            }
+        }, 500)
     }
 
     private fun initGlobalVirtualDisplay() {
@@ -165,10 +189,7 @@ class MainActivity : AppCompatActivity() {
                 else showHintDelayed()
             }
             MODE_MIRROR -> currentRunningPackage = "MIRROR_MODE"
-            else -> {
-                currentRunningPackage = null
-                showHintDelayed()
-            }
+            else -> { currentRunningPackage = null; showHintDelayed() }
         }
     }
 
@@ -178,27 +199,13 @@ class MainActivity : AppCompatActivity() {
 
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(30, 20, 30, 20) // 压缩内边距
+            setPadding(30, 20, 30, 20)
         }
 
-        container.addView(TextView(this).apply { 
-            text = "运行模式选择"
-            textSize = 18f
-            setTextColor(Color.BLACK)
-            setPadding(0, 0, 0, 20)
-            gravity = Gravity.CENTER
-        })
+        container.addView(TextView(this).apply { text = "运行模式选择"; textSize = 18f; setTextColor(Color.BLACK); setPadding(0, 0, 0, 20); gravity = Gravity.CENTER })
 
-        // 宫格选择，高度减半
-        val row1 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(-1, -2)
-        }
-        val row2 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(-1, -2)
-            setPadding(0, 10, 0, 0)
-        }
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(-1, -2) }
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; layoutParams = LinearLayout.LayoutParams(-1, -2); setPadding(0, 10, 0, 0) }
 
         val modes = listOf(
             Triple(MODE_DISPLAY_ONLY, "仅虚拟屏", Color.parseColor("#9E9E9E")),
@@ -210,82 +217,41 @@ class MainActivity : AppCompatActivity() {
         val modeButtons = mutableListOf<Button>()
         modes.forEachIndexed { index, (mode, label, color) ->
             val btn = Button(this).apply {
-                text = label
-                textSize = 14f // 稍微缩小字体
-                setAllCaps(false)
-                // 高度从 240 改为 120
-                layoutParams = LinearLayout.LayoutParams(0, 120, 1f).apply {
-                    setMargins(8, 0, 8, 0)
-                }
-                
-                if (selectedMode == mode) {
-                    setBackgroundColor(color)
-                    setTextColor(Color.WHITE)
-                } else {
-                    setBackgroundColor(Color.parseColor("#DDDDDD"))
-                    setTextColor(Color.parseColor("#444444"))
-                }
-
+                text = label; textSize = 14f; setAllCaps(false)
+                layoutParams = LinearLayout.LayoutParams(0, 120, 1f).apply { setMargins(8, 0, 8, 0) }
+                if (selectedMode == mode) { setBackgroundColor(color); setTextColor(Color.WHITE) }
+                else { setBackgroundColor(Color.parseColor("#DDDDDD")); setTextColor(Color.parseColor("#444444")) }
                 setOnClickListener {
                     selectedMode = mode
                     modeButtons.forEachIndexed { i, b ->
-                        if (modes[i].first == selectedMode) {
-                            b.setBackgroundColor(modes[i].third)
-                            b.setTextColor(Color.WHITE)
-                        } else {
-                            b.setBackgroundColor(Color.parseColor("#DDDDDD"))
-                            b.setTextColor(Color.parseColor("#444444"))
-                        }
+                        if (modes[i].first == selectedMode) { b.setBackgroundColor(modes[i].third); b.setTextColor(Color.WHITE) }
+                        else { b.setBackgroundColor(Color.parseColor("#DDDDDD")); b.setTextColor(Color.parseColor("#444444")) }
                     }
                 }
             }
             modeButtons.add(btn)
             if (index < 2) row1.addView(btn) else row2.addView(btn)
         }
-        
-        container.addView(row1)
-        container.addView(row2)
+        container.addView(row1); container.addView(row2)
 
-        // 紧凑布局设置
-        val optionsLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, 20, 0, 0)
-        }
-        
-        val cbEnableDrag = CheckBox(this).apply { 
-            text = "允许拖动"
-            textSize = 14f
-            isChecked = prefs.getBoolean(KEY_ENABLE_DRAG, true) 
-        }
-        val cbShowOverlay = CheckBox(this).apply { 
-            text = "日志浮窗"
-            textSize = 14f
-            isChecked = prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false) 
-        }
-        optionsLayout.addView(cbEnableDrag)
-        optionsLayout.addView(cbShowOverlay)
+        val optionsLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 20, 0, 0) }
+        val cbEnableDrag = CheckBox(this).apply { text = "允许拖动"; textSize = 14f; isChecked = prefs.getBoolean(KEY_ENABLE_DRAG, true) }
+        val cbShowOverlay = CheckBox(this).apply { text = "日志浮窗"; textSize = 14f; isChecked = prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false) }
+        optionsLayout.addView(cbEnableDrag); optionsLayout.addView(cbShowOverlay)
         container.addView(optionsLayout)
 
-        val etFilter = EditText(this).apply { 
-            hint = "过滤关键字"
-            textSize = 14f
-            setText(prefs.getString(KEY_LOG_FILTER_KEYWORD, ""))
-        }
+        val etFilter = EditText(this).apply { hint = "过滤关键字"; textSize = 14f; setText(prefs.getString(KEY_LOG_FILTER_KEYWORD, "")) }
         container.addView(etFilter)
 
         val btnPickApp = Button(this).apply {
-            text = "▶ 选择应用"
-            textSize = 14f
+            text = "▶ 选择应用"; textSize = 14f
             setOnClickListener { showAppPicker() }
             visibility = if (selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE
         }
         container.addView(btnPickApp)
 
-        // 取消 ScrollView 包装，使页面更紧凑
-        AlertDialog.Builder(this)
-            .setTitle("Miao Settings")
-            .setView(container) 
-            .setPositiveButton("应用", { _, _ ->
+        AlertDialog.Builder(this).setTitle("Miao Settings").setView(container)
+            .setPositiveButton("应用") { _, _ ->
                 prefs.edit {
                     putInt(KEY_MODE, selectedMode)
                     putBoolean(KEY_SHOW_LOG_OVERLAY, cbShowOverlay.isChecked)
@@ -298,22 +264,20 @@ class MainActivity : AppCompatActivity() {
                 createVirtualDisplay(surfaceView.holder)
                 if (selectedMode == MODE_CARPAY) launchCarplayOnMain()
                 restartLogcatListener()
-            })
-            .setNegativeButton("取消", null)
-            .show()
+            }.setNegativeButton("取消", null).show()
     }
 
     private fun showLogOverlay() {
         if (floatingLogView != null) return
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val params = WindowManager.LayoutParams().apply {
-            width = 800; height = 500; type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            width = 800; height = 400; type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             format = PixelFormat.TRANSLUCENT; gravity = Gravity.TOP or Gravity.START; x = 100; y = 100
         }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#CC000000")) }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Color.DKGRAY); setPadding(20, 10, 20, 10) }
-        header.addView(TextView(this).apply { text = "LOGCAT"; setTextColor(Color.YELLOW); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) })
+        header.addView(TextView(this).apply { text = "LOGCAT (Latest 20)"; setTextColor(Color.YELLOW); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) })
         header.addView(TextView(this).apply { text = " ✕ "; setTextColor(Color.WHITE); setOnClickListener { hideLogOverlay() } })
         root.addView(header)
         header.setOnTouchListener { v, e ->
@@ -323,9 +287,9 @@ class MainActivity : AppCompatActivity() {
                 else -> false
             }
         }
-        val tv = TextView(this).apply { setTextColor(Color.WHITE); textSize = 9f }
-        root.addView(ScrollView(this).apply { addView(tv) })
-        try { wm.addView(root, params); floatingLogView = root; tvFloatingLog = tv } catch (e: Exception) { Log.e("Miao", "Overlay fail", e) }
+        val tv = TextView(this).apply { setTextColor(Color.WHITE); textSize = 9f; setPadding(10, 5, 10, 5) }
+        root.addView(tv)
+        try { wm.addView(root, params); floatingLogView = root; tvFloatingLog = tv } catch (e: Exception) {}
     }
 
     private fun hideLogOverlay() {
@@ -337,9 +301,7 @@ class MainActivity : AppCompatActivity() {
         val intent = packageManager.getLaunchIntentForPackage("com.autochips.carplayapp")
         if (intent != null) {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            val options = ActivityOptions.makeBasic()
-            // 锁定在主物理屏幕启动
-            options.launchDisplayId = 0 
+            val options = ActivityOptions.makeBasic(); options.launchDisplayId = 0 
             try { startActivity(intent, options.toBundle()) } catch (e: Exception) { startActivity(intent) }
         }
     }
@@ -402,29 +364,38 @@ class MainActivity : AppCompatActivity() {
 
     private fun startLogcatListener() {
         if (isListening.getAndSet(true)) return
-        val handler = Handler(Looper.getMainLooper())
         val filter = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getString(KEY_LOG_FILTER_KEYWORD, "") ?: ""
         thread(start = true, isDaemon = true) {
-            try {
-                val cmd = "logcat -b main -b system -v raw"
-                currentLogcatProcess = Runtime.getRuntime().exec(cmd)
-                val reader = BufferedReader(InputStreamReader(currentLogcatProcess?.inputStream))
-                var line: String? = null; var lastUi = 0L
-                while (isListening.get() && reader.readLine().also { line = it } != null) {
-                    line?.let { logLine ->
-                        if (tvFloatingLog != null && (filter.isEmpty() || logLine.contains(filter, true))) {
-                            handler.post { tvFloatingLog?.append("\n$logLine"); if ((tvFloatingLog?.text?.length ?: 0) > 5000) tvFloatingLog?.text = tvFloatingLog?.text?.substring(2000) }
-                        }
-                        if (logLine.contains("speed Value")) {
-                            val speed = parseSpeed(logLine); val now = SystemClock.elapsedRealtime()
-                            if (speed != null && (now - lastUi > 30)) {
-                                handler.post { tvLogStatus.text = "● RECEIVING"; tvLogStatus.setTextColor(Color.GREEN); tvSpeed.text = speed }
-                                lastUi = now
+            while (isListening.get()) {
+                try {
+                    // 核心：扩大采集缓冲区到 events 和 crash，确保不漏日志
+                    val cmd = "logcat -b main -b system -b events -b crash -v raw"
+                    currentLogcatProcess = Runtime.getRuntime().exec(cmd)
+                    val reader = BufferedReader(InputStreamReader(currentLogcatProcess?.inputStream))
+                    var line: String? = null; var lastUi = 0L
+                    while (isListening.get() && reader.readLine().also { line = it } != null) {
+                        line?.let { logLine ->
+                            // 预筛选：如果开启了悬浮窗
+                            if (tvFloatingLog != null && (filter.isEmpty() || logLine.contains(filter, true))) {
+                                synchronized(logBuffer) {
+                                    logBuffer.add(logLine)
+                                    if (logBuffer.size > 20) logBuffer.removeAt(0) // 仅保留最新20行
+                                }
+                            }
+                            // 车速解析
+                            if (logLine.contains("speed Value")) {
+                                val speed = parseSpeed(logLine); val now = SystemClock.elapsedRealtime()
+                                if (speed != null && (now - lastUi > 30)) {
+                                    uiHandler.post { tvLogStatus.text = "● RECEIVING"; tvLogStatus.setTextColor(Color.GREEN); tvSpeed.text = speed }
+                                    lastUi = now
+                                }
                             }
                         }
                     }
-                }
-            } catch (e: Exception) {} finally { isListening.set(false) }
+                } catch (e: Exception) {
+                    SystemClock.sleep(3000) // 异常后延迟重启
+                } finally { currentLogcatProcess?.destroy() }
+            }
         }
     }
 
@@ -470,10 +441,7 @@ class MainActivity : AppCompatActivity() {
         val w = if (surfaceView.width > 0) surfaceView.width else 1280
         val hi = if (surfaceView.height > 0) surfaceView.height else 720
         val mode = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(KEY_MODE, MODE_DISPLAY_ONLY)
-        
-        // 核心变更：模式锁定显示器名称为 "carplay仪表"
         val displayName = if (mode == MODE_CARPAY) "carplay仪表" else "HDMI 屏幕"
-        
         var flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
         if (mode == MODE_MIRROR) flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or 16
         try { virtualDisplay = dm.createVirtualDisplay(displayName, w, hi, 160, h.surface, flags or (1 shl 10)) } catch (e: Exception) { virtualDisplay = dm.createVirtualDisplay(displayName, w, hi, 160, h.surface, flags) }
