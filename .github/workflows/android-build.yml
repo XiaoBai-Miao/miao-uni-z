@@ -12,6 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # 授予发布权限
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -26,13 +30,11 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # 采用更安全、不带换行符的解码方式
       - name: Decode Keystore
         env:
           SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY }}
         run: |
           echo "$SIGNING_KEY_BASE64" | base64 --decode > app/platform.jks
-          # 校验文件大小，确保不是空文件
           if [ ! -s app/platform.jks ]; then echo "Keystore is empty!"; exit 1; fi
 
       - name: Build Release APK
@@ -50,18 +52,21 @@ jobs:
           name: Miao-Release-APK
           path: app/build/outputs/apk/release/*.apk
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v1
         with:
+          # 如果是标签推送，使用标签名；如果是普通推送，使用 'latest'
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
           files: app/build/outputs/apk/release/*.apk
           name: Miao Release ${{ env.VERSION }}
           body: |
             ## Miao Version ${{ env.VERSION }}
             - 自动编译生成的正式版系统签名 APK。
-            - 签名类型：AOSP Platform Keys.
+            - 推送分支/标签：${{ github.ref_name }}
             - 提交哈希：${{ github.sha }}
-          draft: false
-          prerelease: false
+          # 如果是普通推送，标记为预发布版本
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
+          # 如果已存在则覆盖附件
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
