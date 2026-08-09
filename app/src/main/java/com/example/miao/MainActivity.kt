@@ -36,8 +36,6 @@ import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.RadioButton
-import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -70,7 +68,6 @@ class MainActivity : AppCompatActivity() {
     private var tvFloatingLog: TextView? = null
 
     companion object {
-        // 静态成员：确保在进程生命周期内永不消失
         private var virtualDisplay: VirtualDisplay? = null
         private var hintPresentation: HintPresentation? = null
         private var currentRunningPackage: String? = null
@@ -93,7 +90,6 @@ class MainActivity : AppCompatActivity() {
 
     private var currentLogcatProcess: Process? = null
     private val isListening = AtomicBoolean(false)
-    private var logFileStream: FileOutputStream? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -125,7 +121,6 @@ class MainActivity : AppCompatActivity() {
         btnSettings.setOnClickListener { showSettingsDialog() }
         btnStopAppMain.setOnClickListener { stopCurrentApp() }
 
-        initLogFile()
         applyGuidelinePreference(mainLayout)
         setupResizing(mainLayout)
         setupTouchForwarding()
@@ -143,27 +138,18 @@ class MainActivity : AppCompatActivity() {
                 if (virtualDisplay == null) {
                     createVirtualDisplay(h)
                 } else {
-                    Log.d("Miao", "Re-attaching existing VirtualDisplay to new Surface")
                     try {
-                        // 核心：利用反射将现有虚拟屏“挂载”到新的显示窗口，无需销毁屏幕
                         val setSurfaceMethod = VirtualDisplay::class.java.getMethod("setSurface", android.view.Surface::class.java)
                         setSurfaceMethod.invoke(virtualDisplay, h.surface)
-                        
-                        // 仅在当前没运行任何 App 时才显示欢迎提示，防止覆盖已有画面
-                        if (currentRunningPackage == null) {
-                            checkAndRunActiveMode()
-                        }
+                        if (currentRunningPackage == null) checkAndRunActiveMode()
                     } catch (e: Exception) {
-                        Log.e("Miao", "setSurface failed, recreating...", e)
                         virtualDisplay?.release()
                         createVirtualDisplay(h)
                     }
                 }
             }
             override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, hi: Int) { updateVirtualDisplaySize() }
-            override fun surfaceDestroyed(h: SurfaceHolder) {
-                Log.d("Miao", "Surface destroyed, but VirtualDisplay stays alive in Companion")
-            }
+            override fun surfaceDestroyed(h: SurfaceHolder) {}
         })
     }
 
@@ -188,100 +174,132 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSettingsDialog() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val currentMode = prefs.getInt(KEY_MODE, MODE_DISPLAY_ONLY)
-        val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(60, 40, 60, 40) }
+        var selectedMode = prefs.getInt(KEY_MODE, MODE_DISPLAY_ONLY)
 
-        container.addView(TextView(this).apply { text = "运行模式 (虚拟屏始终公开)"; textSize = 18f; setPadding(0, 0, 0, 20) })
-        val radioGroup = RadioGroup(this)
-        val rbDisplay = RadioButton(this).apply { text = "仅虚拟屏 (等待投屏)"; id = View.generateViewId() }
-        val rbCarPlay = RadioButton(this).apply { text = "CarPlay专用 (主屏启动)"; id = View.generateViewId() }
-        val rbEmbed = RadioButton(this).apply { text = "内嵌App (虚拟屏运行)"; id = View.generateViewId() }
-        val rbMirror = RadioButton(this).apply { text = "镜像主屏幕 (物理克隆)"; id = View.generateViewId() }
-        radioGroup.addView(rbDisplay); radioGroup.addView(rbCarPlay); radioGroup.addView(rbEmbed); radioGroup.addView(rbMirror)
-        when(currentMode) {
-            MODE_DISPLAY_ONLY -> rbDisplay.isChecked = true
-            MODE_CARPAY -> rbCarPlay.isChecked = true
-            MODE_EMBED_APP -> rbEmbed.isChecked = true
-            MODE_MIRROR -> rbMirror.isChecked = true
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(30, 20, 30, 20) // 压缩内边距
         }
-        container.addView(radioGroup)
 
-        container.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) })
-        container.addView(TextView(this).apply { text = "布局设置"; textSize = 18f; setPadding(0, 0, 0, 20) })
-        val cbEnableDrag = CheckBox(this).apply { text = "允许拖动改变分屏比例"; isChecked = prefs.getBoolean(KEY_ENABLE_DRAG, true) }
-        container.addView(cbEnableDrag)
-        container.addView(Button(this).apply {
-            text = "重置为 16:9 比例"
-            setOnClickListener {
-                val totalWidth = findViewById<View>(R.id.main).width
-                val totalHeight = findViewById<View>(R.id.main).height
-                if (totalWidth > 0) {
-                    val rightWidth = totalHeight * (16f / 9f)
-                    val targetPercent = ((totalWidth - rightWidth) / totalWidth).coerceIn(0.1f, 0.8f)
-                    val params = guideline.layoutParams as ConstraintLayout.LayoutParams
-                    params.guidePercent = targetPercent
-                    guideline.layoutParams = params
-                    prefs.edit { putFloat(KEY_GUIDE_PERCENT, targetPercent) }
-                    updateVirtualDisplaySize()
+        container.addView(TextView(this).apply { 
+            text = "运行模式选择"
+            textSize = 18f
+            setTextColor(Color.BLACK)
+            setPadding(0, 0, 0, 20)
+            gravity = Gravity.CENTER
+        })
+
+        // 宫格选择，高度减半
+        val row1 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
+        }
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(-1, -2)
+            setPadding(0, 10, 0, 0)
+        }
+
+        val modes = listOf(
+            Triple(MODE_DISPLAY_ONLY, "仅虚拟屏", Color.parseColor("#9E9E9E")),
+            Triple(MODE_CARPAY, "CarPlay专用", Color.parseColor("#4CAF50")),
+            Triple(MODE_EMBED_APP, "内嵌应用", Color.parseColor("#2196F3")),
+            Triple(MODE_MIRROR, "屏幕镜像", Color.parseColor("#FF9800"))
+        )
+
+        val modeButtons = mutableListOf<Button>()
+        modes.forEachIndexed { index, (mode, label, color) ->
+            val btn = Button(this).apply {
+                text = label
+                textSize = 14f // 稍微缩小字体
+                setAllCaps(false)
+                // 高度从 240 改为 120
+                layoutParams = LinearLayout.LayoutParams(0, 120, 1f).apply {
+                    setMargins(8, 0, 8, 0)
+                }
+                
+                if (selectedMode == mode) {
+                    setBackgroundColor(color)
+                    setTextColor(Color.WHITE)
+                } else {
+                    setBackgroundColor(Color.parseColor("#DDDDDD"))
+                    setTextColor(Color.parseColor("#444444"))
+                }
+
+                setOnClickListener {
+                    selectedMode = mode
+                    modeButtons.forEachIndexed { i, b ->
+                        if (modes[i].first == selectedMode) {
+                            b.setBackgroundColor(modes[i].third)
+                            b.setTextColor(Color.WHITE)
+                        } else {
+                            b.setBackgroundColor(Color.parseColor("#DDDDDD"))
+                            b.setTextColor(Color.parseColor("#444444"))
+                        }
+                    }
                 }
             }
-        })
+            modeButtons.add(btn)
+            if (index < 2) row1.addView(btn) else row2.addView(btn)
+        }
+        
+        container.addView(row1)
+        container.addView(row2)
 
-        container.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) })
-        container.addView(TextView(this).apply { text = "调试选项"; textSize = 18f; setPadding(0, 0, 0, 20) })
-        val cbShowOverlay = CheckBox(this).apply { text = "显示日志悬浮窗"; isChecked = prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false) }
-        container.addView(cbShowOverlay)
-        val etFilter = EditText(this).apply { hint = "日志过滤关键词"; setText(prefs.getString(KEY_LOG_FILTER_KEYWORD, "")) }
+        // 紧凑布局设置
+        val optionsLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 20, 0, 0)
+        }
+        
+        val cbEnableDrag = CheckBox(this).apply { 
+            text = "允许拖动"
+            textSize = 14f
+            isChecked = prefs.getBoolean(KEY_ENABLE_DRAG, true) 
+        }
+        val cbShowOverlay = CheckBox(this).apply { 
+            text = "日志浮窗"
+            textSize = 14f
+            isChecked = prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false) 
+        }
+        optionsLayout.addView(cbEnableDrag)
+        optionsLayout.addView(cbShowOverlay)
+        container.addView(optionsLayout)
+
+        val etFilter = EditText(this).apply { 
+            hint = "过滤关键字"
+            textSize = 14f
+            setText(prefs.getString(KEY_LOG_FILTER_KEYWORD, ""))
+        }
         container.addView(etFilter)
 
-        container.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) })
-        val btnAction = Button(this).apply { text = "Select & Launch App"; visibility = if (currentMode == MODE_EMBED_APP) View.VISIBLE else View.GONE }
-        radioGroup.setOnCheckedChangeListener { _, checkedId -> btnAction.visibility = if (checkedId == rbEmbed.id) View.VISIBLE else View.GONE }
-        btnAction.setOnClickListener { showAppPicker() }
-        container.addView(btnAction)
-
-        container.addView(Button(this).apply {
-            text = "STOP CURRENT TASK"
-            setTextColor(Color.RED)
-            setOnClickListener { stopCurrentApp() }
-        })
-
-        val tvId = TextView(this).apply {
-            val id = virtualDisplay?.display?.displayId ?: -1
-            text = "\nVirtual Display ID: $id"
-            setTextIsSelectable(true)
+        val btnPickApp = Button(this).apply {
+            text = "▶ 选择应用"
+            textSize = 14f
+            setOnClickListener { showAppPicker() }
+            visibility = if (selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE
         }
-        container.addView(tvId)
+        container.addView(btnPickApp)
 
+        // 取消 ScrollView 包装，使页面更紧凑
         AlertDialog.Builder(this)
-            .setTitle("Settings")
-            .setView(ScrollView(this).apply { addView(container) })
-            .setPositiveButton("Save & Apply") { _, _ ->
-                val newMode = when {
-                    rbDisplay.isChecked -> MODE_DISPLAY_ONLY
-                    rbCarPlay.isChecked -> MODE_CARPAY
-                    rbMirror.isChecked -> MODE_MIRROR
-                    else -> MODE_EMBED_APP
-                }
+            .setTitle("Miao Settings")
+            .setView(container) 
+            .setPositiveButton("应用", { _, _ ->
                 prefs.edit {
-                    putInt(KEY_MODE, newMode)
+                    putInt(KEY_MODE, selectedMode)
                     putBoolean(KEY_SHOW_LOG_OVERLAY, cbShowOverlay.isChecked)
                     putString(KEY_LOG_FILTER_KEYWORD, etFilter.text.toString().trim())
                     putBoolean(KEY_ENABLE_DRAG, cbEnableDrag.isChecked)
                 }
-
                 divider.visibility = if (cbEnableDrag.isChecked) View.VISIBLE else View.GONE
                 if (cbShowOverlay.isChecked) showLogOverlay() else hideLogOverlay()
-                
-                // 只有切换模式时，才强制释放并重建屏幕
-                virtualDisplay?.release()
-                virtualDisplay = null
+                virtualDisplay?.release(); virtualDisplay = null
                 createVirtualDisplay(surfaceView.holder)
-
-                if (newMode == MODE_CARPAY) launchCarplayOnMain()
+                if (selectedMode == MODE_CARPAY) launchCarplayOnMain()
                 restartLogcatListener()
-            }
-            .setNegativeButton("Cancel", null)
+            })
+            .setNegativeButton("取消", null)
             .show()
     }
 
@@ -289,42 +307,25 @@ class MainActivity : AppCompatActivity() {
         if (floatingLogView != null) return
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val params = WindowManager.LayoutParams().apply {
-            width = 800; height = 500
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            width = 800; height = 500; type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-            format = PixelFormat.TRANSLUCENT
-            gravity = Gravity.TOP or Gravity.START; x = 100; y = 100
+            format = PixelFormat.TRANSLUCENT; gravity = Gravity.TOP or Gravity.START; x = 100; y = 100
         }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#CC000000")) }
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Color.DKGRAY); setPadding(20, 10, 20, 10) }
         header.addView(TextView(this).apply { text = "LOGCAT"; setTextColor(Color.YELLOW); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) })
         header.addView(TextView(this).apply { text = " ✕ "; setTextColor(Color.WHITE); setOnClickListener { hideLogOverlay() } })
         root.addView(header)
-        header.setOnTouchListener(object : View.OnTouchListener {
-            private var ix: Int = 0
-            private var iy: Int = 0
-            private var tx: Float = 0f
-            private var ty: Float = 0f
-            override fun onTouch(v: View, e: MotionEvent): Boolean {
-                when(e.action) {
-                    MotionEvent.ACTION_DOWN -> { 
-                        ix = params.x; iy = params.y; tx = e.rawX; ty = e.rawY
-                        v.performClick()
-                        return true 
-                    }
-                    MotionEvent.ACTION_MOVE -> { 
-                        params.x = ix + (e.rawX - tx).toInt()
-                        params.y = iy + (e.rawY - ty).toInt()
-                        wm.updateViewLayout(root, params)
-                        return true 
-                    }
-                }
-                return false
+        header.setOnTouchListener { v, e ->
+            when(e.action) {
+                MotionEvent.ACTION_DOWN -> { v.performClick(); true }
+                MotionEvent.ACTION_MOVE -> { params.x = (e.rawX - 400).toInt(); params.y = (e.rawY - 20).toInt(); wm.updateViewLayout(root, params); true }
+                else -> false
             }
-        })
+        }
         val tv = TextView(this).apply { setTextColor(Color.WHITE); textSize = 9f }
         root.addView(ScrollView(this).apply { addView(tv) })
-        try { wm.addView(root, params); floatingLogView = root; tvFloatingLog = tv } catch (e: Exception) {}
+        try { wm.addView(root, params); floatingLogView = root; tvFloatingLog = tv } catch (e: Exception) { Log.e("Miao", "Overlay fail", e) }
     }
 
     private fun hideLogOverlay() {
@@ -334,7 +335,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun launchCarplayOnMain() {
         val intent = packageManager.getLaunchIntentForPackage("com.autochips.carplayapp")
-        if (intent != null) { intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(intent) }
+        if (intent != null) {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val options = ActivityOptions.makeBasic()
+            // 锁定在主物理屏幕启动
+            options.launchDisplayId = 0 
+            try { startActivity(intent, options.toBundle()) } catch (e: Exception) { startActivity(intent) }
+        }
     }
 
     private fun showAppPicker() {
@@ -343,8 +350,7 @@ class MainActivity : AppCompatActivity() {
         val adapter = object : ArrayAdapter<ResolveInfo>(this, android.R.layout.simple_list_item_2, android.R.id.text1, list) {
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
                 val v = super.getView(position, convertView, parent); val info = getItem(position)
-                v.findViewById<TextView>(android.R.id.text1).text = info?.loadLabel(pm)
-                v.findViewById<TextView>(android.R.id.text2).text = info?.activityInfo?.packageName; return v
+                v.findViewById<TextView>(android.R.id.text1).text = info?.loadLabel(pm); v.findViewById<TextView>(android.R.id.text2).text = info?.activityInfo?.packageName; return v
             }
         }
         AlertDialog.Builder(this).setTitle("Select App").setAdapter(adapter) { _, i ->
@@ -378,44 +384,16 @@ class MainActivity : AppCompatActivity() {
         surfaceView.setOnTouchListener { v, event ->
             val vd = virtualDisplay ?: return@setOnTouchListener false
             val displayId = vd.display.displayId
-            
-            // 1. 获取 SurfaceView 在主物理屏上的绝对位置
-            val location = IntArray(2)
-            v.getLocationOnScreen(location)
-            
-            // 2. 计算相对于视图左上角的精确偏移
-            val localX = event.rawX - location[0]
-            val localY = event.rawY - location[1]
-            
-            // 3. 获取虚拟屏的真实分辨率（排除缩放干扰）
-            val realSize = Point()
-            @Suppress("DEPRECATION")
-            vd.display.getRealSize(realSize)
-            
-            // 4. 计算坐标映射比例
-            val mappedX = localX * (realSize.x.toFloat() / v.width)
-            val mappedY = localY * (realSize.y.toFloat() / v.height)
-            
-            val te = MotionEvent.obtain(event)
-            te.setLocation(mappedX, mappedY)
-            
+            val loc = IntArray(2); v.getLocationOnScreen(loc)
+            val mappedX = (event.rawX - loc[0]) * (vd.display.width.toFloat() / v.width)
+            val mappedY = (event.rawY - loc[1]) * (vd.display.height.toFloat() / v.height)
+            val te = MotionEvent.obtain(event); te.setLocation(mappedX, mappedY)
             try {
                 if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
-                
-                // 5. 关键反射：将触摸事件绑定到虚拟显示器 ID
-                val setDisplayIdMethod = MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
-                setDisplayIdMethod.invoke(te, displayId)
-                
+                MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType).invoke(te, displayId)
                 te.source = InputDevice.SOURCE_TOUCHSCREEN
-                
-                // 6. 注入事件 (异步模式防止阻塞 UI)
-                val injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
-                injectMethod.invoke(inputManager, te, 0)
-            } catch (e: Exception) {
-                Log.e("Miao", "Touch forward fail: ${e.message}")
-            } finally {
-                te.recycle()
-            }
+                InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType).invoke(inputManager, te, 0)
+            } catch (e: Exception) {} finally { te.recycle() }
             true
         }
     }
@@ -457,8 +435,6 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) { null }
     }
 
-    private fun initLogFile() {} // 移除后台写文件，防止延迟
-
     private fun applyGuidelinePreference(mainLayout: ConstraintLayout) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         divider.visibility = if (prefs.getBoolean(KEY_ENABLE_DRAG, true)) View.VISIBLE else View.GONE
@@ -494,9 +470,13 @@ class MainActivity : AppCompatActivity() {
         val w = if (surfaceView.width > 0) surfaceView.width else 1280
         val hi = if (surfaceView.height > 0) surfaceView.height else 720
         val mode = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(KEY_MODE, MODE_DISPLAY_ONLY)
+        
+        // 核心变更：模式锁定显示器名称为 "carplay仪表"
+        val displayName = if (mode == MODE_CARPAY) "carplay仪表" else "HDMI 屏幕"
+        
         var flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
         if (mode == MODE_MIRROR) flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or 16
-        try { virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags or (1 shl 10)) } catch (e: Exception) { virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags) }
+        try { virtualDisplay = dm.createVirtualDisplay(displayName, w, hi, 160, h.surface, flags or (1 shl 10)) } catch (e: Exception) { virtualDisplay = dm.createVirtualDisplay(displayName, w, hi, 160, h.surface, flags) }
         checkAndRunActiveMode()
     }
 
@@ -510,7 +490,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // 核心变更：不再在销毁时释放虚拟屏，确保它在进程存活期间永远在线
         currentLogcatProcess?.destroy()
     }
 
