@@ -111,6 +111,7 @@ class MainActivity : AppCompatActivity() {
         surfaceView = findViewById(R.id.right_panel)
         divider = findViewById(R.id.divider)
         val btnSettings = findViewById<ImageButton>(R.id.btn_settings)
+        val btnStopAppMain = findViewById<ImageButton>(R.id.btn_stop_app_main)
 
         val leftPanel = findViewById<ViewGroup>(R.id.left_panel)
         tvLogStatus = TextView(this).apply {
@@ -122,6 +123,7 @@ class MainActivity : AppCompatActivity() {
         leftPanel.addView(tvLogStatus)
 
         btnSettings.setOnClickListener { showSettingsDialog() }
+        btnStopAppMain.setOnClickListener { stopCurrentApp() }
 
         initLogFile()
         applyGuidelinePreference(mainLayout)
@@ -298,13 +300,28 @@ class MainActivity : AppCompatActivity() {
         header.addView(TextView(this).apply { text = "LOGCAT"; setTextColor(Color.YELLOW); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) })
         header.addView(TextView(this).apply { text = " ✕ "; setTextColor(Color.WHITE); setOnClickListener { hideLogOverlay() } })
         root.addView(header)
-        header.setOnTouchListener { v, e ->
-            when(e.action) {
-                MotionEvent.ACTION_DOWN -> { v.performClick(); true }
-                MotionEvent.ACTION_MOVE -> { params.x += (e.rawX - params.x).toInt() - 400; params.y += (e.rawY - params.y).toInt() - 250; wm.updateViewLayout(root, params); true }
-                else -> false
+        header.setOnTouchListener(object : View.OnTouchListener {
+            private var ix: Int = 0
+            private var iy: Int = 0
+            private var tx: Float = 0f
+            private var ty: Float = 0f
+            override fun onTouch(v: View, e: MotionEvent): Boolean {
+                when(e.action) {
+                    MotionEvent.ACTION_DOWN -> { 
+                        ix = params.x; iy = params.y; tx = e.rawX; ty = e.rawY
+                        v.performClick()
+                        return true 
+                    }
+                    MotionEvent.ACTION_MOVE -> { 
+                        params.x = ix + (e.rawX - tx).toInt()
+                        params.y = iy + (e.rawY - ty).toInt()
+                        wm.updateViewLayout(root, params)
+                        return true 
+                    }
+                }
+                return false
             }
-        }
+        })
         val tv = TextView(this).apply { setTextColor(Color.WHITE); textSize = 9f }
         root.addView(ScrollView(this).apply { addView(tv) })
         try { wm.addView(root, params); floatingLogView = root; tvFloatingLog = tv } catch (e: Exception) {}
@@ -361,17 +378,44 @@ class MainActivity : AppCompatActivity() {
         surfaceView.setOnTouchListener { v, event ->
             val vd = virtualDisplay ?: return@setOnTouchListener false
             val displayId = vd.display.displayId
-            val vw = surfaceView.width; val vh = surfaceView.height
-            if (vw <= 0 || vh <= 0) return@setOnTouchListener false
-            val realSize = Point(); @Suppress("DEPRECATION") vd.display.getRealSize(realSize)
+            
+            // 1. 获取 SurfaceView 在主物理屏上的绝对位置
+            val location = IntArray(2)
+            v.getLocationOnScreen(location)
+            
+            // 2. 计算相对于视图左上角的精确偏移
+            val localX = event.rawX - location[0]
+            val localY = event.rawY - location[1]
+            
+            // 3. 获取虚拟屏的真实分辨率（排除缩放干扰）
+            val realSize = Point()
+            @Suppress("DEPRECATION")
+            vd.display.getRealSize(realSize)
+            
+            // 4. 计算坐标映射比例
+            val mappedX = localX * (realSize.x.toFloat() / v.width)
+            val mappedY = localY * (realSize.y.toFloat() / v.height)
+            
             val te = MotionEvent.obtain(event)
-            te.setLocation(event.x * (realSize.x.toFloat() / vw), event.y * (realSize.y.toFloat() / vh))
+            te.setLocation(mappedX, mappedY)
+            
             try {
                 if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
-                MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType).invoke(te, displayId)
+                
+                // 5. 关键反射：将触摸事件绑定到虚拟显示器 ID
+                val setDisplayIdMethod = MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
+                setDisplayIdMethod.invoke(te, displayId)
+                
                 te.source = InputDevice.SOURCE_TOUCHSCREEN
-                InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType).invoke(inputManager, te, 0)
-            } catch (e: Exception) {} finally { te.recycle() }
+                
+                // 6. 注入事件 (异步模式防止阻塞 UI)
+                val injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
+                injectMethod.invoke(inputManager, te, 0)
+            } catch (e: Exception) {
+                Log.e("Miao", "Touch forward fail: ${e.message}")
+            } finally {
+                te.recycle()
+            }
             true
         }
     }
