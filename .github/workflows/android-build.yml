@@ -26,10 +26,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # 关键步骤：从 GitHub Secret 解码 JKS 文件
+      # 采用更安全、不带换行符的解码方式
       - name: Decode Keystore
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY }}
         run: |
-          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > app/platform.jks
+          echo "$SIGNING_KEY_BASE64" | base64 --decode > app/platform.jks
+          # 校验文件大小，确保不是空文件
+          if [ ! -s app/platform.jks ]; then echo "Keystore is empty!"; exit 1; fi
 
       - name: Build Release APK
         run: ./gradlew assembleRelease
