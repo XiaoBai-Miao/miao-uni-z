@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="panel_background">#121212</color>
+    <color name="speed_text_color">#E0E0E0</color>
+    <color name="label_text_color">#999999</color>
+    <color name="hint_bg_color">#121212</color>
+    <color name="hint_text_color">#FFFFFF</color>
+    <color name="button_inactive_bg">#2C2C2C</color>
+    <color name="button_inactive_text">#BBBBBB</color>
+</resources>
