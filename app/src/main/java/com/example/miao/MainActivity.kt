@@ -117,7 +117,6 @@ class MainActivity : AppCompatActivity() {
         private const val KEY_ENABLE_DRAG = "enable_divider_drag"
         private const val KEY_GUIDE_PERCENT = "guide_percent"
         private const val KEY_LOCK_RATIO = "lock_ratio_16_9"
-        private const val KEY_USE_ACCESSIBILITY = "use_accessibility_touch"
         
         private const val DEFAULT_TAG = "Mointerservice"
         private const val POWER_TAG = "CmdSmdManager"
@@ -243,7 +242,7 @@ class MainActivity : AppCompatActivity() {
             if (w > 0 && h > 0) {
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 val isDouble = prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)
-                val targetCenterW = (h - 16) * (16f / 9f)
+                val targetCenterW = h * (16f / 9f)
 
                 if (isDouble) {
                     val sideW = (w - targetCenterW) / 2.0
@@ -251,8 +250,7 @@ class MainActivity : AppCompatActivity() {
                     guidelineLeft.setGuidelinePercent(leftP)
                     guidelineRight.setGuidelinePercent(1.0f - leftP)
                 } else {
-                    // 单翼锁定：自动扩展左侧，填满剩余空间，让右侧画面贴边
-                    val leftP = (1.0f - (targetCenterW / w)).toFloat().coerceIn(0.1f, 0.5f)
+                    val leftP = (1.0f - (targetCenterW / w)).toFloat().coerceIn(0.1f, 0.45f)
                     guidelineLeft.setGuidelinePercent(leftP)
                     guidelineRight.setGuidelinePercent(1.0f)
                 }
@@ -377,7 +375,7 @@ class MainActivity : AppCompatActivity() {
         val container = LinearLayout(ctx).apply { 
             orientation = LinearLayout.VERTICAL; setPadding(25, 20, 25, 25)
             background = GradientDrawable().apply { setColor(getColor(R.color.panel_background)); cornerRadius = 30f; setStroke(2, Color.GRAY) }
-            setOnClickListener { /* 阻止点击穿透 */ }
+            setOnClickListener { /* 阻止穿透 */ }
         }
         
         val scroll = ScrollView(ctx).apply { 
@@ -388,12 +386,13 @@ class MainActivity : AppCompatActivity() {
 
         container.addView(TextView(ctx).apply { text = "Miao Cluster Settings"; textSize = 16f; setTextColor(getColor(R.color.speed_text_color)); gravity = Gravity.CENTER; setPadding(0,0,0,15) })
         
+        // 模式选择：2列排列
         val modeList = listOf(Triple(MODE_DISPLAY_ONLY, "仅显示", Color.GRAY), Triple(MODE_CARPAY, "CarPlay", Color.parseColor("#2196F3")), Triple(MODE_EMBED_APP, "内嵌App", Color.parseColor("#FF9800")), Triple(MODE_MIRROR, "镜像屏", Color.parseColor("#9C27B0")))
         val modeBtns = mutableListOf<Button>()
+        
         val btnPick = Button(ctx).apply { text = "▶ 选择App"; textSize = 11f; layoutParams = LinearLayout.LayoutParams(-1, 80).apply { setMargins(0,5,0,15) }; setOnClickListener { showAppPickerOnPrimary() }; visibility = if(selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE }
 
-        // 每行2个模式按钮
-        val modesContainer = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        val modesGrid = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         for (i in modeList.indices step 2) {
             val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
             for (j in 0..1) {
@@ -405,8 +404,8 @@ class MainActivity : AppCompatActivity() {
                         setOnClickListener { 
                             selectedMode = m; btnPick.visibility = if (selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE
                             modeBtns.forEach { btn -> 
-                                val mId = modeList[modeBtns.indexOf(btn)].first
-                                if (mId == selectedMode) { btn.setBackgroundColor(modeList[modeBtns.indexOf(btn)].third); btn.setTextColor(Color.WHITE) } 
+                                val bM = modeList[modeBtns.indexOf(btn)].first
+                                if (bM == selectedMode) { btn.setBackgroundColor(modeList[modeBtns.indexOf(btn)].third); btn.setTextColor(Color.WHITE) } 
                                 else { btn.setBackgroundResource(R.color.button_inactive_bg); btn.setTextColor(getColor(R.color.button_inactive_text)) } 
                             }
                         }
@@ -414,9 +413,9 @@ class MainActivity : AppCompatActivity() {
                     modeBtns.add(b); row.addView(b)
                 }
             }
-            modesContainer.addView(row)
+            modesGrid.addView(row)
         }
-        container.addView(modesContainer); container.addView(btnPick)
+        container.addView(modesGrid); container.addView(btnPick)
 
         // UI风格
         val rowStyle = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 10, 0, 15) }
@@ -428,8 +427,8 @@ class MainActivity : AppCompatActivity() {
 
         val cbLock = CheckBox(ctx).apply { text = "锁定16:9"; textSize = 12f; setTextColor(getColor(R.color.speed_text_color)); isChecked = prefs.getBoolean(KEY_LOCK_RATIO, false) }
         val cbDrag = CheckBox(ctx).apply { text = "允许拖动"; textSize = 12f; setTextColor(getColor(R.color.speed_text_color)); isChecked = prefs.getBoolean(KEY_ENABLE_DRAG, true) }
-        val rS = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 10, 0, 0) }
-        rS.addView(cbLock); rS.addView(cbDrag); container.addView(rS)
+        val rowOpt = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 10, 0, 0) }
+        rowOpt.addView(cbLock); rowOpt.addView(cbDrag); container.addView(rowOpt)
 
         val btnApply = Button(ctx).apply { text = "应用生效"; textSize = 13f; setBackgroundColor(Color.DKGRAY); setTextColor(Color.WHITE); layoutParams = LinearLayout.LayoutParams(-1, 100).apply { setMargins(0,20,0,0) }
             setOnClickListener { 
@@ -520,18 +519,29 @@ class MainActivity : AppCompatActivity() {
             v.requestFocus()
             val vd = virtualDisplay ?: return@setOnTouchListener false
             val displayId = vd.display.displayId
-            val loc = IntArray(2); v.getLocationOnScreen(loc)
-            val mappedX = (event.rawX - loc[0]) * (vd.display.width.toFloat() / v.width)
-            val mappedY = (event.rawY - loc[1]) * (vd.display.height.toFloat() / v.height)
-            val useAcc = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getBoolean(KEY_USE_ACCESSIBILITY, false)
-            if (useAcc && MiaoAccessibilityService.instance != null && event.action == MotionEvent.ACTION_DOWN) { MiaoAccessibilityService.instance?.dispatchGestureRelay(mappedX, mappedY, displayId, 50); v.performClick(); return@setOnTouchListener true }
-            val te = MotionEvent.obtain(event); te.setLocation(mappedX, mappedY)
-            try { if (event.action == MotionEvent.ACTION_DOWN) v.performClick(); MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType).invoke(te, displayId); te.source = InputDevice.SOURCE_TOUCHSCREEN; InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType).invoke(inputManager, te, 2) } catch (e: Exception) {} finally { te.recycle() }
+            
+            // 嵌套环境下的原生坐标映射：不再使用 getRaw，直接使用 event.getX()
+            // event.getX() 在 SurfaceView 中是相对于该视图自身的。
+            val mappedX = event.x * (vd.display.width.toFloat() / v.width)
+            val mappedY = event.y * (vd.display.height.toFloat() / v.height)
+            
+            val te = MotionEvent.obtain(event)
+            te.setLocation(mappedX, mappedY)
+            try { 
+                if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
+                val setDisplayIdMethod = MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
+                setDisplayIdMethod.invoke(te, displayId)
+                te.source = InputDevice.SOURCE_TOUCHSCREEN
+                
+                val injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
+                // 模式 2 = WAIT_FOR_FINISH，解决车机输入序列混乱
+                injectMethod.invoke(inputManager, te, 2)
+            } catch (e: Exception) {
+                Log.e("Miao", "Touch Injection Failed: ${e.message}")
+            } finally { te.recycle() }
             true
         }
     }
-
-    private fun restartLogcatListener() { isListening.set(false); processMain?.destroy(); processSystem?.destroy(); startLogcatListener() }
 
     private fun startLogcatListener() {
         if (isListening.getAndSet(true)) return
@@ -622,12 +632,10 @@ class MainActivity : AppCompatActivity() {
 
     @android.annotation.SuppressLint("WrongConstant")
     private fun createVirtualDisplay(h: SurfaceHolder) {
-        val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        val w = if (surfaceView.width > 0) surfaceView.width else 1280
-        val hi = if (surfaceView.height > 0) surfaceView.height else 720
+        val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager; val w = if (surfaceView.width > 0) surfaceView.width else 1280; val hi = if (surfaceView.height > 0) surfaceView.height else 720
         var flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
         if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(KEY_MODE, MODE_DISPLAY_ONLY) == MODE_MIRROR) {
-            flags = flags or 16
+            flags = flags or 16 // VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
         }
         try { virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags or (1 shl 10)) } catch (e: Exception) { virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags) }
         checkAndRunActiveMode()
