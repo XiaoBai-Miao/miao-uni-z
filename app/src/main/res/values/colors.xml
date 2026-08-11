@@ -1,12 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-    <color name="panel_background">#F0F0F0</color>
-    <color name="speed_text_color">#333333</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
+
+    <!-- 仪表盘通用颜色 - 亮色模式 -->
+    <color name="panel_background">#F0F2F5</color>
+    <color name="speed_text_color">#0077FF</color> <!-- 对应照片中的蓝色 -->
     <color name="label_text_color">#666666</color>
-    <color name="hint_bg_color">#FFFFFF</color>
-    <color name="hint_text_color">#000000</color>
+    <color name="accent_blue">#0077FF</color>
+    <color name="accent_green">#2E7D32</color> <!-- 对应照片中的绿色 -->
+
+    <!-- 翼形面板背景颜色 -->
+    <color name="wing_bg_start">#FFFFFF</color>
+    <color name="wing_bg_end">#E8EBF0</color>
+    <color name="wing_stroke">#15000000</color>
+
+    <!-- 发光效果颜色 (亮色下减弱) -->
+    <color name="speed_glow">#200077FF</color>
+    <color name="power_glow">#202E7D32</color>
+
     <color name="button_inactive_bg">#DDDDDD</color>
     <color name="button_inactive_text">#444444</color>
+
+    <color name="hint_bg_color">#FFFFFF</color>
+    <color name="hint_text_color">#000000</color>
 </resources>

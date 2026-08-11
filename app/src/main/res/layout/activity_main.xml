@@ -5,85 +5,68 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/black"
     tools:context=".MainActivity">
 
     <androidx.constraintlayout.widget.Guideline
-        android:id="@+id/guideline"
+        android:id="@+id/guideline_left"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        app:layout_constraintGuide_percent="0.29" />
+        app:layout_constraintGuide_percent="0.22" />
 
-    <FrameLayout
+    <androidx.constraintlayout.widget.Guideline
+        android:id="@+id/guideline_right"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        app:layout_constraintGuide_percent="0.78" />
+
+    <!-- 左侧面板 -->
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/left_panel"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="@color/panel_background"
+        android:layout_margin="6dp"
+        android:background="@drawable/wing_background"
         app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/guideline"
+        app:layout_constraintEnd_toStartOf="@+id/guideline_left"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
-        <!-- 左上角时间 -->
         <TextView
             android:id="@+id/tv_time"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="top|start"
-            android:layout_margin="16dp"
-            android:text="00:00"
+            android:layout_marginTop="12dp"
+            android:fontFamily="sans-serif-medium"
+            android:text="12:00"
             android:textColor="@color/label_text_color"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <!-- 时间显示：左上角 -->
-        <TextView
-            android:id="@+id/tv_clock"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="top|start"
-            android:layout_margin="16dp"
-            android:text="00:00"
-            android:textColor="@color/speed_text_color"
-            android:textSize="20sp"
-            android:textStyle="bold" />
-
-        <ImageButton
-            android:id="@+id/btn_settings"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="bottom|start"
-            android:layout_margin="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Settings"
-            android:src="@android:drawable/ic_menu_manage" />
-
-        <ImageButton
-            android:id="@+id/btn_stop_app_main"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="bottom|end"
-            android:layout_margin="16dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Stop Virtual App"
-            android:src="@android:drawable/ic_menu_delete"
-            app:tint="#FF4444" />
+            android:textSize="18sp"
+            android:textStyle="bold"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
 
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
             android:gravity="center"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            app:layout_constraintBottom_toTopOf="@+id/bottom_info_left"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/tv_time">
 
-            <!-- 车速显示 -->
             <TextView
                 android:id="@+id/tv_speed"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:shadowColor="@color/speed_glow"
+                android:shadowRadius="15"
                 android:text="0"
                 android:textColor="@color/speed_text_color"
-                android:textSize="120sp"
+                android:textSize="100sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -91,53 +74,177 @@
                 android:layout_height="wrap_content"
                 android:text="km/h"
                 android:textColor="@color/label_text_color"
-                android:textSize="24sp" />
+                android:textSize="16sp" />
 
-            <!-- 功率显示 -->
             <LinearLayout
+                android:id="@+id/power_container_left"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="40dp"
-                android:gravity="bottom"
-                android:orientation="horizontal">
-
+                android:layout_marginTop="10dp"
+                android:gravity="center"
+                android:visibility="gone">
                 <TextView
-                    android:id="@+id/tv_power"
+                    android:id="@+id/tv_power_left"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0.0"
-                    android:textColor="@color/speed_text_color"
-                    android:textSize="48sp"
+                    android:textColor="@color/accent_green"
+                    android:textSize="32sp"
                     android:textStyle="bold" />
-
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_marginBottom="8dp"
+                    android:layout_marginStart="4dp"
                     android:text="kW"
                     android:textColor="@color/label_text_color"
-                    android:textSize="18sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/pb_speed_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="4dp"
+            android:layout_height="0dp"
+            android:layout_marginVertical="80dp"
+            android:layout_marginStart="4dp"
+            android:max="180"
+            android:progressDrawable="@drawable/dashboard_progress_speed"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <LinearLayout
+            android:id="@+id/bottom_info_left"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="15dp"
+            android:gravity="center"
+            android:orientation="vertical"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent">
+            <TextView
+                android:id="@+id/tv_soc"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="--%"
+                android:textColor="@color/speed_text_color"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+            <ProgressBar
+                android:id="@+id/pb_battery"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="100dp"
+                android:layout_height="6dp"
+                android:layout_marginTop="5dp"
+                android:max="100"
+                android:progressTint="@color/accent_blue" />
+        </LinearLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- 中间区域 -->
+    <FrameLayout
+        android:id="@+id/center_container"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toStartOf="@+id/guideline_right"
+        app:layout_constraintStart_toEndOf="@+id/guideline_left"
+        app:layout_constraintTop_toTopOf="parent">
+        <FrameLayout
+            android:id="@+id/center_card"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_margin="6dp"
+            android:background="@drawable/wing_background">
+            <SurfaceView
+                android:id="@+id/right_panel"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
+        </FrameLayout>
     </FrameLayout>
 
+    <!-- 分隔条 -->
     <View
         android:id="@+id/divider"
-        android:layout_width="8dp"
+        android:layout_width="4dp"
         android:layout_height="match_parent"
-        android:background="#888888"
-        android:contentDescription="Drag to resize"
-        app:layout_constraintEnd_toEndOf="@+id/guideline"
-        app:layout_constraintStart_toStartOf="@+id/guideline" />
+        android:background="#1AFFFFFF"
+        app:layout_constraintEnd_toEndOf="@+id/guideline_left"
+        app:layout_constraintStart_toStartOf="@+id/guideline_left" />
 
-    <SurfaceView
-        android:id="@+id/right_panel"
+    <!-- 右侧面板 -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/right_side_panel"
         android:layout_width="0dp"
         android:layout_height="0dp"
+        android:layout_margin="6dp"
+        android:background="@drawable/wing_background"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toEndOf="@+id/guideline"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintStart_toEndOf="@+id/guideline_right"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <!-- 顶部占位符：确保右侧大字能与左侧大字在同一水平线 -->
+        <View
+            android:id="@+id/right_top_spacer"
+            android:layout_width="1dp"
+            android:layout_height="40dp"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@+id/right_top_spacer">
+            <TextView
+                android:id="@+id/tv_power"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:shadowColor="@color/power_glow"
+                android:shadowRadius="15"
+                android:text="0.0"
+                android:textColor="@color/accent_green"
+                android:textSize="100sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="kW"
+                android:textColor="@color/label_text_color"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <ProgressBar
+            android:id="@+id/pb_power_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="4dp"
+            android:layout_height="0dp"
+            android:layout_marginVertical="80dp"
+            android:layout_marginEnd="4dp"
+            android:max="200"
+            android:progressDrawable="@drawable/dashboard_progress_power"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <ImageButton
+            android:id="@+id/btn_stop_app_main"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_margin="12dp"
+            android:alpha="0.2"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:tint="@color/label_text_color" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

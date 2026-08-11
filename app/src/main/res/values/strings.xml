@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">miao</string>
     <string name="status_standby">● STANDBY</string>
+    <string name="accessibility_desc">Miao 触屏修复助手：用于在虚拟屏幕中进行手势分发。</string>
 </resources>
