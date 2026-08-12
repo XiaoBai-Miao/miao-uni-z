@@ -8,6 +8,39 @@
     android:background="@color/black"
     tools:context=".MainActivity">
 
+    <!-- 1. 顶栏 -->
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/top_bar"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_margin="6dp"
+        android:background="@drawable/wing_background"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <TextView
+            android:id="@+id/tv_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="20dp"
+            android:fontFamily="sans-serif-medium"
+            android:text="12:00"
+            android:textColor="@color/label_text_color"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <FrameLayout
+            android:id="@+id/center_indicator_area"
+            android:layout_width="500dp"
+            android:layout_height="match_parent"
+            android:background="@drawable/trapezoid_indicator_bg"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline_left"
         android:layout_width="wrap_content"
@@ -22,41 +55,29 @@
         android:orientation="vertical"
         app:layout_constraintGuide_percent="0.78" />
 
-    <!-- 左侧面板 -->
+    <!-- 2. 左侧面板：高度对齐，高亮手柄在右内侧 -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/left_panel"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_margin="6dp"
+        android:layout_marginHorizontal="6dp"
+        android:layout_marginBottom="6dp"
         android:background="@drawable/wing_background"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toStartOf="@+id/guideline_left"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <TextView
-            android:id="@+id/tv_time"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:fontFamily="sans-serif-medium"
-            android:text="12:00"
-            android:textColor="@color/label_text_color"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toBottomOf="@+id/top_bar">
 
         <LinearLayout
+            android:id="@+id/center_info_left"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
             android:orientation="vertical"
-            app:layout_constraintBottom_toTopOf="@+id/bottom_info_left"
+            app:layout_constraintBottom_toTopOf="@+id/music_card"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/tv_time">
+            app:layout_constraintTop_toTopOf="parent">
 
             <TextView
                 android:id="@+id/tv_speed"
@@ -80,7 +101,7 @@
                 android:id="@+id/power_container_left"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="8dp"
                 android:gravity="center"
                 android:visibility="gone">
                 <TextView
@@ -101,6 +122,97 @@
             </LinearLayout>
         </LinearLayout>
 
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/music_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:layout_marginHorizontal="12dp"
+            android:background="@drawable/wing_background"
+            android:padding="12dp"
+            android:elevation="4dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toTopOf="@+id/bottom_info_left">
+
+            <ImageView
+                android:id="@+id/iv_music_cover"
+                android:layout_width="100dp"
+                android:layout_height="100dp"
+                android:scaleType="centerCrop"
+                android:src="@android:drawable/ic_menu_report_image"
+                android:background="#15888888"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_marginStart="12dp"
+                app:layout_constraintBottom_toBottomOf="@id/iv_music_cover"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toEndOf="@id/iv_music_cover"
+                app:layout_constraintTop_toTopOf="@id/iv_music_cover">
+
+                <TextView
+                    android:id="@+id/tv_music_title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="正在载入"
+                    android:textColor="@color/speed_text_color"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <TextView
+                    android:id="@+id/tv_music_artist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="未知歌手"
+                    android:textColor="@color/label_text_color"
+                    android:textSize="11sp"
+                    app:layout_constraintTop_toBottomOf="@id/tv_music_title" />
+
+                <TextView
+                    android:id="@+id/tv_music_album"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="未知专辑"
+                    android:textColor="@color/label_text_color"
+                    android:textSize="9sp"
+                    android:alpha="0.6"
+                    app:layout_constraintTop_toBottomOf="@id/tv_music_artist" />
+
+                <ProgressBar
+                    android:id="@+id/pb_music_progress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="3dp"
+                    android:layout_marginBottom="4dp"
+                    android:max="100"
+                    android:progress="0"
+                    android:progressTint="@color/accent_blue"
+                    app:layout_constraintBottom_toTopOf="@+id/tv_music_time" />
+
+                <TextView
+                    android:id="@+id/tv_music_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00:00 / 00:00"
+                    android:textColor="@color/label_text_color"
+                    android:textSize="9sp"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent" />
+            </androidx.constraintlayout.widget.ConstraintLayout>
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
         <ProgressBar
             android:id="@+id/pb_speed_bar"
             style="?android:attr/progressBarStyleHorizontal"
@@ -116,47 +228,65 @@
 
         <LinearLayout
             android:id="@+id/bottom_info_left"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="15dp"
-            android:gravity="center"
-            android:orientation="vertical"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent">
+            android:layout_marginHorizontal="16dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            app:layout_constraintBottom_toBottomOf="parent">
+
+            <ProgressBar
+                android:id="@+id/pb_battery"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="0dp"
+                android:layout_height="6dp"
+                android:layout_weight="1"
+                android:max="100"
+                android:progressTint="@color/accent_blue" />
+
             <TextView
                 android:id="@+id/tv_soc"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
                 android:text="--%"
                 android:textColor="@color/speed_text_color"
                 android:textSize="18sp"
                 android:textStyle="bold" />
-            <ProgressBar
-                android:id="@+id/pb_battery"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="100dp"
-                android:layout_height="6dp"
-                android:layout_marginTop="5dp"
-                android:max="100"
-                android:progressTint="@color/accent_blue" />
         </LinearLayout>
+
+        <!-- 【高亮左手柄】：增大尺寸且强制置顶 -->
+        <FrameLayout
+            android:id="@+id/drag_handle_left"
+            android:layout_width="60dp"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent">
+            <View
+                android:layout_width="8dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center_vertical|end"
+                android:layout_marginEnd="1dp"
+                android:background="@drawable/drag_handle_pill" />
+        </FrameLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- 中间区域 -->
+    <!-- 3. 中间视窗 -->
     <FrameLayout
         android:id="@+id/center_container"
         android:layout_width="0dp"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginHorizontal="6dp"
+        android:layout_marginBottom="6dp"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toStartOf="@+id/guideline_right"
         app:layout_constraintStart_toEndOf="@+id/guideline_left"
-        app:layout_constraintTop_toTopOf="parent">
+        app:layout_constraintTop_toBottomOf="@+id/top_bar">
         <FrameLayout
             android:id="@+id/center_card"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_margin="6dp"
             android:background="@drawable/wing_background">
             <SurfaceView
                 android:id="@+id/right_panel"
@@ -165,34 +295,18 @@
         </FrameLayout>
     </FrameLayout>
 
-    <!-- 分隔条 -->
-    <View
-        android:id="@+id/divider"
-        android:layout_width="4dp"
-        android:layout_height="match_parent"
-        android:background="#1AFFFFFF"
-        app:layout_constraintEnd_toEndOf="@+id/guideline_left"
-        app:layout_constraintStart_toStartOf="@+id/guideline_left" />
-
-    <!-- 右侧面板 -->
+    <!-- 4. 右侧面板：手柄在左内侧 -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/right_side_panel"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_margin="6dp"
+        android:layout_marginHorizontal="6dp"
+        android:layout_marginBottom="6dp"
         android:background="@drawable/wing_background"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toEndOf="@+id/guideline_right"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <!-- 顶部占位符：确保右侧大字能与左侧大字在同一水平线 -->
-        <View
-            android:id="@+id/right_top_spacer"
-            android:layout_width="1dp"
-            android:layout_height="40dp"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent" />
+        app:layout_constraintTop_toBottomOf="@+id/top_bar">
 
         <LinearLayout
             android:layout_width="wrap_content"
@@ -202,7 +316,7 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/right_top_spacer">
+            app:layout_constraintTop_toTopOf="parent">
             <TextView
                 android:id="@+id/tv_power"
                 android:layout_width="wrap_content"
@@ -245,6 +359,30 @@
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:tint="@color/label_text_color" />
+
+        <!-- 【高亮右手柄】：强制靠左 (内侧) -->
+        <FrameLayout
+            android:id="@+id/drag_handle_right"
+            android:layout_width="60dp"
+            android:layout_height="match_parent"
+            android:visibility="gone"
+            app:layout_constraintStart_toStartOf="parent">
+            <View
+                android:layout_width="8dp"
+                android:layout_height="80dp"
+                android:layout_gravity="center_vertical|start"
+                android:layout_marginStart="1dp"
+                android:background="@drawable/drag_handle_pill" />
+        </FrameLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <!-- 隐藏旧条目 -->
+    <View
+        android:id="@+id/divider"
+        android:layout_width="1dp"
+        android:layout_height="1dp"
+        android:visibility="gone"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

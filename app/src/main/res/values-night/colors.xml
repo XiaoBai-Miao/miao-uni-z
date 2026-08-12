@@ -12,6 +12,11 @@
     <color name="wing_bg_end">#000000</color>
     <color name="wing_stroke">#33FFFFFF</color>
 
+    <!-- 顶栏与梯形颜色 -->
+    <color name="top_bar_bg">#000000</color>
+    <color name="trapezoid_fill">#1AFFFFFF</color>
+    <color name="trapezoid_stroke">#33FFFFFF</color>
+
     <!-- 发光效果颜色 -->
     <color name="speed_glow">#4000E5FF</color>
     <color name="power_glow">#4000E676</color>

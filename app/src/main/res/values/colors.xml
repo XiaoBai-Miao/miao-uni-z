@@ -5,15 +5,20 @@
 
     <!-- 仪表盘通用颜色 - 亮色模式 -->
     <color name="panel_background">#F0F2F5</color>
-    <color name="speed_text_color">#0077FF</color> <!-- 对应照片中的蓝色 -->
+    <color name="speed_text_color">#0077FF</color>
     <color name="label_text_color">#666666</color>
     <color name="accent_blue">#0077FF</color>
-    <color name="accent_green">#2E7D32</color> <!-- 对应照片中的绿色 -->
+    <color name="accent_green">#2E7D32</color>
 
     <!-- 翼形面板背景颜色 -->
     <color name="wing_bg_start">#FFFFFF</color>
     <color name="wing_bg_end">#E8EBF0</color>
     <color name="wing_stroke">#15000000</color>
+
+    <!-- 顶栏与梯形颜色 -->
+    <color name="top_bar_bg">#FFFFFF</color>
+    <color name="trapezoid_fill">#0A000000</color>
+    <color name="trapezoid_stroke">#20000000</color>
 
     <!-- 发光效果颜色 (亮色下减弱) -->
     <color name="speed_glow">#200077FF</color>

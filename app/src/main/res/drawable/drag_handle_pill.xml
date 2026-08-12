@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 使用高亮蓝色 -->
+    <solid android:color="@color/accent_blue" />
+    <corners android:radius="4dp" />
+    <!-- 增加细微描边增强立体感 -->
+    <stroke android:width="1dp" android:color="#4DFFFFFF" />
+</shape>

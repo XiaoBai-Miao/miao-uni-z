@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="600dp"
+    android:height="40dp"
+    android:viewportWidth="600"
+    android:viewportHeight="40">
+    <!-- 填充背景：支持深浅色 -->
+    <path
+        android:fillColor="@color/trapezoid_fill"
+        android:pathData="M 0,0 L 600,0 L 550,40 L 50,40 Z" />
+    <!-- 1dp 描边：支持深浅色 -->
+    <path
+        android:strokeColor="@color/trapezoid_stroke"
+        android:strokeWidth="1"
+        android:pathData="M 0,0 L 600,0 L 550,40 L 50,40 Z" />
+</vector>
