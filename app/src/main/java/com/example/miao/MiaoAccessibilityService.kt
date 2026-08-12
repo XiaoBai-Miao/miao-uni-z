@@ -1,11 +1,12 @@
 package com.example.miao
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.GestureDescription
-import android.graphics.Path
-import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 
+/**
+ * Miao 触屏助手无障碍服务
+ * 目前主要用于辅助权限获取，核心触摸分发已切回原生 InputManager
+ */
 class MiaoAccessibilityService : AccessibilityService() {
 
     companion object {
@@ -19,25 +20,8 @@ class MiaoAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
     override fun onInterrupt() {}
-    override fun onDestroy() { super.onDestroy(); instance = null }
-
-    /**
-     * 在虚拟屏对应的 Display 上模拟手势
-     */
-    fun dispatchGestureRelay(x: Float, y: Float, displayId: Int) {
-        val path = Path()
-        path.moveTo(x, y)
-        // 模拟一个极小的滑动以激活车机屏幕响应
-        path.lineTo(x, y + 1)
-        
-        val builder = GestureDescription.Builder()
-        builder.addStroke(GestureDescription.StrokeDescription(path, 0, 100))
-        
-        // 在 Android 9 上，即使不能 setDisplayId，也可以尝试通过默认分发
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            builder.setDisplayId(displayId)
-        }
-        
-        dispatchGesture(builder.build(), null, null)
+    override fun onDestroy() {
+        super.onDestroy()
+        instance = null
     }
 }

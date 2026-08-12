@@ -8,7 +8,7 @@
     android:background="@color/black"
     tools:context=".MainActivity">
 
-    <!-- 1. 顶栏 -->
+    <!-- 1. 顶栏卡片 -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/top_bar"
         android:layout_width="match_parent"
@@ -41,6 +41,7 @@
             app:layout_constraintTop_toTopOf="parent" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
+    <!-- 参考线 -->
     <androidx.constraintlayout.widget.Guideline
         android:id="@+id/guideline_left"
         android:layout_width="wrap_content"
@@ -55,7 +56,7 @@
         android:orientation="vertical"
         app:layout_constraintGuide_percent="0.78" />
 
-    <!-- 2. 左侧面板：高度对齐，高亮手柄在右内侧 -->
+    <!-- 2. 左侧面板 -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/left_panel"
         android:layout_width="0dp"
@@ -139,6 +140,7 @@
                 android:layout_width="100dp"
                 android:layout_height="100dp"
                 android:scaleType="centerCrop"
+                android:contentDescription="@null"
                 android:src="@android:drawable/ic_menu_report_image"
                 android:background="#15888888"
                 app:layout_constraintStart_toStartOf="parent"
@@ -159,7 +161,7 @@
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:text="正在载入"
+                    android:text="@string/loading"
                     android:textColor="@color/speed_text_color"
                     android:textSize="14sp"
                     android:textStyle="bold"
@@ -172,7 +174,7 @@
                     android:layout_marginTop="2dp"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:text="未知歌手"
+                    android:text="@string/unknown_artist"
                     android:textColor="@color/label_text_color"
                     android:textSize="11sp"
                     app:layout_constraintTop_toBottomOf="@id/tv_music_title" />
@@ -184,9 +186,9 @@
                     android:layout_marginTop="1dp"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:text="未知专辑"
+                    android:text="@string/unknown_album"
                     android:textColor="@color/label_text_color"
-                    android:textSize="9sp"
+                    android:textSize="11sp"
                     android:alpha="0.6"
                     app:layout_constraintTop_toBottomOf="@id/tv_music_artist" />
 
@@ -207,7 +209,7 @@
                     android:layout_height="wrap_content"
                     android:text="00:00 / 00:00"
                     android:textColor="@color/label_text_color"
-                    android:textSize="9sp"
+                    android:textSize="11sp"
                     app:layout_constraintBottom_toBottomOf="parent"
                     app:layout_constraintEnd_toEndOf="parent" />
             </androidx.constraintlayout.widget.ConstraintLayout>
@@ -256,10 +258,10 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- 【高亮左手柄】：增大尺寸且强制置顶 -->
+        <!-- 左侧手柄：贴右边缘 (向内) -->
         <FrameLayout
             android:id="@+id/drag_handle_left"
-            android:layout_width="60dp"
+            android:layout_width="40dp"
             android:layout_height="match_parent"
             android:visibility="gone"
             app:layout_constraintEnd_toEndOf="parent">
@@ -272,7 +274,7 @@
         </FrameLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- 3. 中间视窗 -->
+    <!-- 3. 中间区域 -->
     <FrameLayout
         android:id="@+id/center_container"
         android:layout_width="0dp"
@@ -295,7 +297,7 @@
         </FrameLayout>
     </FrameLayout>
 
-    <!-- 4. 右侧面板：手柄在左内侧 -->
+    <!-- 4. 右侧面板 -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/right_side_panel"
         android:layout_width="0dp"
@@ -356,11 +358,12 @@
             android:alpha="0.2"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:contentDescription="@null"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
             app:tint="@color/label_text_color" />
 
-        <!-- 【高亮右手柄】：强制靠左 (内侧) -->
+        <!-- 右侧手柄：贴左边缘 (向内) -->
         <FrameLayout
             android:id="@+id/drag_handle_right"
             android:layout_width="60dp"
@@ -376,7 +379,7 @@
         </FrameLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- 隐藏旧条目 -->
+    <!-- 隐藏旧分隔条 -->
     <View
         android:id="@+id/divider"
         android:layout_width="1dp"

@@ -2,4 +2,20 @@
     <string name="app_name">miao</string>
     <string name="status_standby">● STANDBY</string>
     <string name="accessibility_desc">Miao 触屏修复助手：用于在虚拟屏幕中进行手势分发。</string>
+    <string name="loading">正在载入</string>
+    <string name="unknown_artist">未知歌手</string>
+    <string name="unknown_album">未知专辑</string>
+    <string name="hdmi_ready">HDMI 虚拟屏幕就绪\nID: %1$d\n请在左侧设置模式</string>
+    <string name="settings_title">Miao Cluster Settings</string>
+    <string name="style_double">左右双翼</string>
+    <string name="style_single">左侧单翼</string>
+    <string name="pick_app">▶ 选择内嵌应用</string>
+    <string name="mode_display">仅显示</string>
+    <string name="mode_carplay">CarPlay</string>
+    <string name="mode_embed">内嵌App</string>
+    <string name="mode_mirror">镜像屏</string>
+    <string name="lock_ratio">锁定16:9</string>
+    <string name="allow_drag">允许拖动</string>
+    <string name="music_card">音乐卡片</string>
+    <string name="apply_settings">应用生效</string>
 </resources>
