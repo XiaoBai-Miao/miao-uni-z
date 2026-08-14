@@ -9,10 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ResolveInfo
 import android.content.res.Configuration
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Outline
 import android.graphics.PixelFormat
-import android.graphics.Point
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
@@ -62,11 +62,13 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
@@ -82,6 +84,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var guidelineLeft: Guideline
     private lateinit var guidelineRight: Guideline
     private lateinit var surfaceView: SurfaceView
+    private lateinit var divider: View
     private lateinit var centerCard: FrameLayout
     private lateinit var centerContainer: FrameLayout
     private lateinit var rightSidePanel: View
@@ -89,7 +92,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var musicCard: View
     private lateinit var tvMusicTitle: TextView
     private lateinit var tvMusicArtist: TextView
-    private lateinit var tvMusicAlbum: TextView
+    private lateinit var tvMusicLyric: TextView
     private lateinit var tvMusicTime: TextView
     private lateinit var pbMusicProgress: ProgressBar
     private lateinit var ivMusicCover: ImageView
@@ -103,11 +106,11 @@ class MainActivity : AppCompatActivity() {
     private var lastVoltage: Double = 0.0
     private var lastCurrent: Double = 0.0
     private var musicDuration: Long = 0
+    private var lastCoverUrl: String? = null
     
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeMediaController: MediaController? = null
 
-    // 实例变量，避免 static 内存泄漏
     private var floatingBall: View? = null
     private var currentSettingsOverlay: View? = null
     private var tvFloatingLog: TextView? = null
@@ -131,9 +134,14 @@ class MainActivity : AppCompatActivity() {
                 uiHandler.post {
                     if (title != null) tvMusicTitle.text = title
                     if (artist != null) tvMusicArtist.text = artist
-                    if (album != null) tvMusicAlbum.text = album
+                    if (album != null) tvMusicLyric.text = album
                     musicDuration = duration
-                    if (art != null) ivMusicCover.setImageBitmap(art) else ivMusicCover.setImageResource(android.R.drawable.ic_menu_report_image)
+                    if (art != null) {
+                        ivMusicCover.setImageBitmap(art)
+                        lastCoverUrl = null
+                    } else {
+                        ivMusicCover.setImageResource(android.R.drawable.ic_menu_report_image)
+                    }
                     updateMusicTime(0)
                 }
             }
@@ -167,6 +175,9 @@ class MainActivity : AppCompatActivity() {
         private const val POWER_TAG = "CmdSmdManager"
         private const val SOC_TAG = "CarCabinManager"
         private const val MUSIC_TAG = "AvrcpControllerService"
+        private const val MUSIC_PLAY_TAG = "BtMusicPlayImpl"
+        private const val MUSIC_KUGOU_TAG = "KuGouMusicInterfaceService"
+        private const val MUSIC_WIDGET_TAG = "MusicWidgetView"
         private const val MUSIC_A2DP_TAG = "A2dpMediaBrowserService"
     }
 
@@ -197,7 +208,7 @@ class MainActivity : AppCompatActivity() {
         musicCard = findViewById(R.id.music_card)
         tvMusicTitle = findViewById(R.id.tv_music_title)
         tvMusicArtist = findViewById(R.id.tv_music_artist)
-        tvMusicAlbum = findViewById(R.id.tv_music_album)
+        tvMusicLyric = findViewById(R.id.tv_music_lyric)
         tvMusicTime = findViewById(R.id.tv_music_time)
         pbMusicProgress = findViewById(R.id.pb_music_progress)
         ivMusicCover = findViewById(R.id.iv_music_cover)
@@ -208,6 +219,7 @@ class MainActivity : AppCompatActivity() {
         guidelineLeft = findViewById(R.id.guideline_left)
         guidelineRight = findViewById(R.id.guideline_right)
         surfaceView = findViewById(R.id.right_panel)
+        divider = findViewById(R.id.divider)
         centerCard = findViewById(R.id.center_card)
         centerContainer = findViewById(R.id.center_container)
         rightSidePanel = findViewById(R.id.right_side_panel)
@@ -224,8 +236,10 @@ class MainActivity : AppCompatActivity() {
         applyGuidelinePreference(mainLayout)
         setupResizing(mainLayout)
         setupTouchForwarding()
+        
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         if (prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false)) showLogOverlay()
+        
         initFloatingBall()
         startLogcatListener()
         initGlobalVirtualDisplay()
@@ -235,26 +249,13 @@ class MainActivity : AppCompatActivity() {
         initMediaSessionListener()
     }
 
-    private fun initMediaSessionListener() {
-        try {
-            mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
-            updateActiveMediaSession()
-        } catch (e: Exception) {
-            Log.e("Miao", "MediaSession init failed: ${e.message}")
-        }
+    private fun getPrimaryContext(): Context {
+        val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        return createDisplayContext(dm.getDisplay(0))
     }
 
-    private fun updateActiveMediaSession() {
-        try {
-            // Android 9+ 需要通知监听权限才能获取所有活跃 Session
-            val controllers = mediaSessionManager?.getActiveSessions(ComponentName(this, NotificationListener::class.java))
-            if (!controllers.isNullOrEmpty()) {
-                activeMediaController?.unregisterCallback(mediaCallback)
-                activeMediaController = controllers[0]
-                activeMediaController?.registerCallback(mediaCallback)
-                mediaCallback.onMetadataChanged(activeMediaController?.metadata)
-            }
-        } catch (e: Exception) {}
+    private fun getPrimaryWindowManager(): WindowManager {
+        return getPrimaryContext().getSystemService(Context.WINDOW_SERVICE) as WindowManager
     }
 
     private fun applyUiStyle() {
@@ -263,16 +264,17 @@ class MainActivity : AppCompatActivity() {
         val showMusic = prefs.getBoolean(KEY_SHOW_MUSIC_CARD, false)
         val canDrag = prefs.getBoolean(KEY_ENABLE_DRAG, true)
         
+        // 核心：无论何种模式，只要开启开关就显示音乐卡片
+        musicCard.visibility = if (showMusic) View.VISIBLE else View.GONE
+
         if (isDouble) {
             rightSidePanel.visibility = View.VISIBLE
             powerContainerLeft.visibility = View.GONE
-            musicCard.visibility = View.GONE
             dragHandleRight.visibility = if(canDrag) View.VISIBLE else View.GONE
             if (!prefs.getBoolean(KEY_LOCK_RATIO, false)) guidelineRight.setGuidelinePercent(0.78f)
         } else {
             rightSidePanel.visibility = View.GONE
             powerContainerLeft.visibility = View.VISIBLE
-            musicCard.visibility = if (showMusic) View.VISIBLE else View.GONE
             dragHandleRight.visibility = View.GONE
             if (!prefs.getBoolean(KEY_LOCK_RATIO, false)) guidelineRight.setGuidelinePercent(1.0f)
         }
@@ -282,20 +284,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun adjustForScreenRatio(main: View) {
         main.post {
-            val w = main.width.toFloat()
-            val h = main.height.toFloat()
+            val w = main.width.toFloat(); val h = main.height.toFloat()
             if (w > 0 && h > 0) {
                 val curL = (guidelineLeft.layoutParams as ConstraintLayout.LayoutParams).guidePercent
                 val curR = (guidelineRight.layoutParams as ConstraintLayout.LayoutParams).guidePercent
                 val centerWidth = w * (curR - curL)
                 val targetRatio = 16f / 9f
-                val panelHeight = h - 60 // 48dp top_bar + 12dp margins
+                val panelHeight = h - 84 // 72dp top_bar + margins
                 if ((centerWidth / panelHeight) < targetRatio) {
                     val p = ((panelHeight - (centerWidth / targetRatio)) / 2).toInt().coerceAtLeast(0)
                     centerContainer.setPadding(0, p, 0, p)
-                } else {
-                    centerContainer.setPadding(0, 0, 0, 0)
-                }
+                } else { centerContainer.setPadding(0, 0, 0, 0) }
                 updateTextSizes(w * curL)
             }
         }
@@ -311,20 +310,19 @@ class MainActivity : AppCompatActivity() {
     private fun apply16x9Now() {
         val main = findViewById<ConstraintLayout>(R.id.main)
         main.post {
-            val w = main.width.toFloat()
-            val h = main.height.toFloat()
+            val w = main.width.toFloat(); val h = main.height.toFloat()
             if (w > 0 && h > 0) {
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 val isDouble = prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)
-                val targetCenterW = (h - 60) * (16f / 9f)
+                val targetCenterW = (h - 84) * (16f / 9f)
 
                 if (isDouble) {
                     val sideW = (w - targetCenterW) / 2.0
-                    val leftP = (sideW / w).toFloat().coerceIn(0.1f, 0.4f)
+                    val leftP = (sideW / w).coerceIn(0.1, 0.4).toFloat()
                     guidelineLeft.setGuidelinePercent(leftP)
                     guidelineRight.setGuidelinePercent(1.0f - leftP)
                 } else {
-                    val leftP = (1.0f - (targetCenterW / w)).coerceIn(0.1f, 0.5f)
+                    val leftP = (1.0 - (targetCenterW / w)).coerceIn(0.1, 0.5).toFloat()
                     guidelineLeft.setGuidelinePercent(leftP)
                     guidelineRight.setGuidelinePercent(1.0f)
                 }
@@ -332,6 +330,16 @@ class MainActivity : AppCompatActivity() {
                 updateVirtualDisplaySize()
             }
         }
+    }
+
+    private fun applyGuidelinePreference(mainLayout: ConstraintLayout) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val isLocked = prefs.getBoolean(KEY_LOCK_RATIO, false)
+        if (isLocked) apply16x9Now() else { 
+            val p = prefs.getFloat(KEY_GUIDE_PERCENT, 0.22f)
+            guidelineLeft.setGuidelinePercent(p)
+            guidelineRight.setGuidelinePercent(if(prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)) 1.0f - p else 1.0f) 
+        } 
     }
 
     private fun resetLayoutToNormal() {
@@ -358,15 +366,6 @@ class MainActivity : AppCompatActivity() {
         tvPowerLeft.setTextColor(getColor(R.color.accent_green))
         tvSoc.setTextColor(getColor(R.color.speed_text_color))
         tvTime.setTextColor(getColor(R.color.label_text_color))
-    }
-
-    private fun getPrimaryContext(): Context {
-        val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        return createDisplayContext(dm.getDisplay(0))
-    }
-
-    private fun getPrimaryWindowManager(): WindowManager {
-        return getPrimaryContext().getSystemService(Context.WINDOW_SERVICE) as WindowManager
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -400,7 +399,7 @@ class MainActivity : AppCompatActivity() {
                         if (nx > 100 && nx < screenWidth - 180) nx = if (nx < screenWidth / 2) 5 else screenWidth - 85
                         params.x = nx; params.y = iy + (e.rawY - ty).toInt()
                         wm.updateViewLayout(ball, params)
-                        if (Math.abs(e.rawX - tx) > 10 || Math.abs(e.rawY - ty) > 10) moved = true; return true 
+                        if (abs(e.rawX - tx) > 10 || abs(e.rawY - ty) > 10) moved = true; return true 
                     }
                     MotionEvent.ACTION_UP -> { 
                         params.x = if (params.x < screenWidth / 2) 5 else screenWidth - 85
@@ -415,7 +414,7 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
         })
-        try { wm.addView(ball, params); floatingBall = ball } catch (e: Exception) {}
+        try { wm.addView(ball, params); floatingBall = ball } catch (ex: Exception) {}
     }
 
     private fun closeSettingsMenu() {
@@ -428,12 +427,12 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         var selectedMode = prefs.getInt(KEY_MODE, MODE_DISPLAY_ONLY)
         var isDouble = prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)
-        var showMusic = prefs.getBoolean(KEY_SHOW_MUSIC_CARD, false)
+        val showMusic = prefs.getBoolean(KEY_SHOW_MUSIC_CARD, false)
         val wm = getPrimaryWindowManager()
         val ctx = getPrimaryContext()
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION") wm.defaultDisplay.getMetrics(metrics)
-        val ballParams = floatingBall?.layoutParams as WindowManager.LayoutParams
+        val ballParams = (floatingBall?.layoutParams as? WindowManager.LayoutParams) ?: return
         
         val rootOverlay = FrameLayout(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(-1, -1)
@@ -460,7 +459,7 @@ class MainActivity : AppCompatActivity() {
         }
         rootOverlay.addView(scroll, FrameLayout.LayoutParams(550, -2))
 
-        container.addView(TextView(ctx).apply { text = getString(R.string.settings_title); textSize = 16f; setTextColor(getColor(R.color.speed_text_color)); gravity = Gravity.CENTER; setPadding(0,0,0,15) })
+        container.addView(TextView(ctx).apply { text = getString(R.string.settings_title); textSize = 15f; setTextColor(getColor(R.color.speed_text_color)); gravity = Gravity.CENTER; setPadding(0,0,0,15) })
         
         val rowStyle = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 15) }
         val bDouble = Button(ctx).apply { text = getString(R.string.style_double); textSize = 11f; layoutParams = LinearLayout.LayoutParams(0, 80, 1f).apply { setMargins(4,0,4,0) } }
@@ -482,7 +481,7 @@ class MainActivity : AppCompatActivity() {
             val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
             for (j in 0..1) if (i + j < modeList.size) {
                 val (m, l, c) = modeList[i + j]
-                val b = Button(ctx).apply { text = l; textSize = 11f; setAllCaps(false); layoutParams = LinearLayout.LayoutParams(0, 85, 1f).apply { setMargins(4, 4, 4, 4) }
+                val b = Button(ctx).apply { text = l; textSize = 11f; isAllCaps = false; layoutParams = LinearLayout.LayoutParams(0, 85, 1f).apply { setMargins(4, 4, 4, 4) }
                     if (selectedMode == m) { setBackgroundColor(c); setTextColor(Color.WHITE) } else { setBackgroundResource(R.color.button_inactive_bg); setTextColor(getColor(R.color.button_inactive_text)) }
                     setOnClickListener { 
                         selectedMode = m; btnPick.visibility = if (selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE
@@ -516,7 +515,7 @@ class MainActivity : AppCompatActivity() {
             } 
         }
         container.addView(btnApply)
-        try { wm.addView(rootOverlay, overlayParams); currentSettingsOverlay = rootOverlay } catch (e: Exception) {}
+        try { wm.addView(rootOverlay, overlayParams); currentSettingsOverlay = rootOverlay } catch (ex: Exception) {}
     }
 
     private fun showAppPickerOnPrimary() {
@@ -574,6 +573,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showHintDelayed() { 
+        Handler(Looper.getMainLooper()).postDelayed({ 
+            if (isFinishing || currentRunningPackage != null) return@postDelayed
+            val vd = virtualDisplay?.display
+            if (vd != null) { 
+                if (hintPresentation != null) hintPresentation?.dismiss()
+                hintPresentation = HintPresentation(this, vd)
+                try { hintPresentation?.show() } catch (ex: Exception) {} 
+            } 
+        }, 1000) 
+    }
+
     private fun showLogOverlay() {
         if (floatingLogView != null) return
         val wm = getPrimaryWindowManager()
@@ -598,11 +609,11 @@ class MainActivity : AppCompatActivity() {
         root.addView(header)
         val tv = TextView(root.context).apply { setTextColor(Color.WHITE); textSize = 11f; setPadding(10, 5, 10, 5) }
         root.addView(tv)
-        try { wm.addView(root, params); floatingLogView = root; tvFloatingLog = tv } catch (e: Exception) {}
+        try { wm.addView(root, params); floatingLogView = root; tvFloatingLog = tv } catch (ex: Exception) {}
     }
 
     private fun hideLogOverlay() { 
-        floatingLogView?.let { getPrimaryWindowManager().removeView(it) }
+        floatingLogView?.let { try { getPrimaryWindowManager().removeView(it) } catch (e: Exception) {} }
         floatingLogView = null; tvFloatingLog = null 
     }
 
@@ -634,7 +645,7 @@ class MainActivity : AppCompatActivity() {
                 am.javaClass.getMethod("forceStopPackage", String::class.java).invoke(am, currentRunningPackage) 
             }
             currentRunningPackage = null; showHintDelayed() 
-        } catch (e: Exception) { showHintDelayed() } 
+        } catch (ex: Exception) { showHintDelayed() } 
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -643,6 +654,8 @@ class MainActivity : AppCompatActivity() {
             v.requestFocus()
             val vd = virtualDisplay ?: return@setOnTouchListener false
             val displayId = vd.display.displayId
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION") vd.display.getMetrics(metrics)
             val mappedX = event.x * (vd.display.width.toFloat() / v.width)
             val mappedY = event.y * (vd.display.height.toFloat() / v.height)
             val te = MotionEvent.obtain(event); te.setLocation(mappedX, mappedY)
@@ -652,7 +665,7 @@ class MainActivity : AppCompatActivity() {
                 te.source = InputDevice.SOURCE_TOUCHSCREEN
                 val injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
                 injectMethod.invoke(getSystemService(Context.INPUT_SERVICE), te, 2) 
-            } catch (e: Exception) { Log.e("Miao", "Touch Failed: ${e.message}") } finally { te.recycle() }
+            } catch (ex: Exception) { Log.e("Miao", "Touch Failed: ${ex.message}") } finally { te.recycle() }
             true
         }
     }
@@ -671,9 +684,9 @@ class MainActivity : AppCompatActivity() {
             var process: Process? = null
             try { 
                 val cmd = when { 
-                    !isOverlay -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_A2DP_TAG:V *:S"
-                    filter.isEmpty() -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_A2DP_TAG:V *:V"
-                    else -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_A2DP_TAG:V $filter:V *:S" 
+                    !isOverlay -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V MUSIC_A2DP_TAG:V *:S"
+                    filter.isEmpty() -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V MUSIC_A2DP_TAG:V *:V"
+                    else -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V MUSIC_A2DP_TAG:V $filter:V *:S" 
                 }
                 process = Runtime.getRuntime().exec(cmd)
                 if (bufferArgs.contains("main")) processMain = process else processSystem = process
@@ -694,24 +707,31 @@ class MainActivity : AppCompatActivity() {
                             extractValue(logLine)?.let { soc -> uiHandler.post { tvSoc.text = String.format(Locale.US, "%.0f %%", soc); pbBattery.progress = soc.toInt() } } 
                         }
                         if (logLine.contains("prop=0x2160f502")) { 
-                            var c = extractValue(logLine) ?: 0.0
-                            if (c < -100.0) c += 256.0
+                            val c = extractValue(logLine) ?: 0.0
                             lastCurrent = c; updatePowerDisplay() 
                         }
                         else if (logLine.contains("prop=0x2160f503")) { 
                             val v = extractValue(logLine)
                             if (v != null) { lastVoltage = v; updatePowerDisplay() } 
                         }
-                        if (logLine.contains("prev MM title") || logLine.contains("onTrackChanged TrackInfo")) {
-                            val title = Regex("(?:mTrackTitle|title)=([^,\n\\]]+)").find(logLine)?.groupValues?.get(1)?.trim()
-                            val artist = Regex("(?:mArtistName|artist)=([^,\n\\]]+)").find(logLine)?.groupValues?.get(1)?.trim()
-                            val album = Regex("(?:mAlbumTitle|album)=([^,\n\\]]+)").find(logLine)?.groupValues?.get(1)?.trim()
-                            val len = Regex("(?:mTrackLen|track len)[ =]([0-9]+)").find(logLine)?.groupValues?.get(1)?.toLongOrNull() ?: 0
+                        
+                        // 综合音乐解析 (支持歌名、歌手、封面 URL、专辑/歌词)
+                        if (logLine.contains("onTrackChanged TrackInfo") || logLine.contains("prev MM title") || logLine.contains("getMediaTitle: result:") || logLine.contains("isActiveTimeOut")) {
+                            val title = Regex("(?:mTrackTitle|title|result|song):? ?=?(?:result:)? ?[\"']?([^,\n\\]\"']+)[\"']?").find(logLine)?.groupValues?.get(1)?.trim()
+                            val artist = Regex("(?:mArtistName|artist|singer)=[\"']?([^,\n\\]\"']+)[\"']?").find(logLine)?.groupValues?.get(1)?.trim()
+                            val album = Regex("(?:mAlbumTitle|album)=[\"']?([^,\n\\]\"']+)[\"']?").find(logLine)?.groupValues?.get(1)?.trim()
+                            val cover = Regex("(?:albumImg|img|singerImg)=[\"']?([^,\n\\]\"']+)[\"']?").find(logLine)?.groupValues?.get(1)?.trim()
+                            val len = Regex("(?:mTrackLen|track len|duration)[ =]([0-9]+)").find(logLine)?.groupValues?.get(1)?.toLongOrNull() ?: 0
+                            
                             uiHandler.post { 
-                                if (title != null && title != "null") tvMusicTitle.text = title
-                                if (artist != null && artist != "null") tvMusicArtist.text = artist
-                                if (album != null && album != "null") tvMusicAlbum.text = album
+                                if (title != null && title != "null" && title.isNotEmpty()) tvMusicTitle.text = title
+                                if (artist != null && artist != "null" && artist.isNotEmpty()) tvMusicArtist.text = artist
+                                if (album != null && album != "null" && album.isNotEmpty()) tvMusicLyric.text = album
                                 if (len > 0) musicDuration = len
+                                if (cover != null && cover.startsWith("http") && cover != lastCoverUrl) {
+                                    lastCoverUrl = cover
+                                    loadCoverFromUrl(cover)
+                                }
                                 updateMusicTime(0)
                             }
                         }
@@ -721,7 +741,19 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-            } catch (e: Exception) { SystemClock.sleep(5000) } finally { process?.destroy() }
+            } catch (ex: Exception) { SystemClock.sleep(5000) } finally { process?.destroy() }
+        }
+    }
+
+    private fun loadCoverFromUrl(urlStr: String) {
+        thread {
+            try {
+                val url = URL(urlStr)
+                val bitmap = BitmapFactory.decodeStream(url.openStream())
+                uiHandler.post { if (bitmap != null) ivMusicCover.setImageBitmap(bitmap) }
+            } catch (ex: Exception) {
+                Log.e("Miao", "Cover load failed: ${ex.message}")
+            }
         }
     }
 
@@ -731,11 +763,11 @@ class MainActivity : AppCompatActivity() {
         pbMusicProgress.progress = progress
         val curStr = String.format(Locale.US, "%02d:%02d", currentMs / 60000, (currentMs % 60000) / 1000)
         val durStr = String.format(Locale.US, "%02d:%02d", musicDuration / 60000, (musicDuration % 60000) / 1000)
-        tvMusicTime.text = getString(R.string.app_name).replace("miao", "$curStr / $durStr") // 借用 app_name 占位或直接拼接
         tvMusicTime.text = "$curStr / $durStr"
     }
 
-    private fun extractValue(line: String): Double? { return try { val pattern = "(?:data|value|电量|values)[\\s=]*([0-9.-]+)"; Regex(pattern).find(line)?.groupValues?.get(1)?.toDouble() } catch (e: Exception) { null } }
+    private fun extractValue(line: String): Double? { return try { val pattern = "(?:data|value|电量|values)[\\s=]*([0-9.-]+)"; Regex(pattern).find(line)?.groupValues?.get(1)?.toDouble() } catch (ex: Exception) { null } }
+    
     private fun updatePowerDisplay() { 
         val p = (lastVoltage * lastCurrent) / 1000.0
         uiHandler.post { 
@@ -744,16 +776,28 @@ class MainActivity : AppCompatActivity() {
             pbPowerBar.progress = (p + 50).toInt().coerceIn(0, 200) 
         } 
     }
-    private fun parseSpeed(logLine: String): String? { return try { val match = Regex("speed Value\\(\\)\\s*=\\s*([0-9.]+)").find(logLine); match?.groupValues?.get(1)?.toDouble()?.let { String.format(Locale.US, "%.1f", it) } } catch (e: Exception) { null } }
     
-    private fun applyGuidelinePreference(mainLayout: ConstraintLayout) { 
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val isLocked = prefs.getBoolean(KEY_LOCK_RATIO, false)
-        if (isLocked) apply16x9Now() else { 
-            val p = prefs.getFloat(KEY_GUIDE_PERCENT, 0.22f)
-            guidelineLeft.setGuidelinePercent(p)
-            guidelineRight.setGuidelinePercent(if(prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)) 1.0f - p else 1.0f) 
-        } 
+    private fun parseSpeed(logLine: String): String? { return try { val match = Regex("speed Value\\(\\)\\s*=\\s*([0-9.]+)").find(logLine); match?.groupValues?.get(1)?.toDouble()?.let { String.format(Locale.US, "%.1f", it) } } catch (ex: Exception) { null } }
+    
+    private fun initMediaSessionListener() {
+        try {
+            mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+            updateActiveMediaSession()
+        } catch (ex: Exception) {
+            Log.e("Miao", "MediaSession init failed: ${ex.message}")
+        }
+    }
+
+    private fun updateActiveMediaSession() {
+        try {
+            val controllers = mediaSessionManager?.getActiveSessions(ComponentName(this, NotificationListener::class.java))
+            if (!controllers.isNullOrEmpty()) {
+                activeMediaController?.unregisterCallback(mediaCallback)
+                activeMediaController = controllers[0]
+                activeMediaController?.registerCallback(mediaCallback)
+                mediaCallback.onMetadataChanged(activeMediaController?.metadata)
+            }
+        } catch (ex: Exception) {}
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -771,7 +815,7 @@ class MainActivity : AppCompatActivity() {
                     val leftP = rawXPercent.coerceIn(0.1f, 0.45f)
                     guidelineLeft.setGuidelinePercent(leftP)
                     if (prefs.getBoolean(KEY_LOCK_RATIO, false)) {
-                        val targetCenterW = (screenH - 60) * (16f/9f)
+                        val targetCenterW = (screenH - 84) * (16f/9f)
                         guidelineRight.setGuidelinePercent((leftP + (targetCenterW / screenW)).coerceAtMost(1.0f))
                     } else if (prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)) {
                         guidelineRight.setGuidelinePercent(1.0f - leftP)
@@ -780,7 +824,7 @@ class MainActivity : AppCompatActivity() {
                     val rightP = rawXPercent.coerceIn(0.55f, 0.95f)
                     guidelineRight.setGuidelinePercent(rightP)
                     if (prefs.getBoolean(KEY_LOCK_RATIO, false)) {
-                        val targetCenterW = (screenH - 60) * (16f/9f)
+                        val targetCenterW = (screenH - 84) * (16f/9f)
                         guidelineLeft.setGuidelinePercent((rightP - (targetCenterW / screenW)).coerceAtLeast(0.05f))
                     }
                 }
@@ -813,28 +857,13 @@ class MainActivity : AppCompatActivity() {
         val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val w = if (surfaceView.width > 0) surfaceView.width else 1280
         val hi = if (surfaceView.height > 0) surfaceView.height else 720
-        var flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
-        if (getSharedPreferences(PREFS_NAME, MODE_PRIVATE).getInt(KEY_MODE, MODE_DISPLAY_ONLY) == MODE_MIRROR) {
-            flags = flags or DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR
-        }
+        @SuppressLint("WrongConstant") val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
         try { 
             virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags) 
-        } catch (e: Exception) { 
+        } catch (ex: Exception) { 
             virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags) 
         }
         checkAndRunActiveMode() 
-    }
-    
-    private fun showHintDelayed() { 
-        Handler(Looper.getMainLooper()).postDelayed({ 
-            if (isFinishing || currentRunningPackage != null) return@postDelayed
-            val vd = virtualDisplay?.display
-            if (vd != null) { 
-                if (hintPresentation != null) hintPresentation?.dismiss()
-                hintPresentation = HintPresentation(this, vd)
-                try { hintPresentation?.show() } catch (e: Exception) {} 
-            } 
-        }, 1000) 
     }
     
     override fun onDestroy() { 
