@@ -1057,6 +1057,8 @@ class MainActivity : AppCompatActivity() {
 
     class NotificationListener : android.service.notification.NotificationListenerService()
     class HintPresentation(c: Context, private val targetDisplay: Display) : Presentation(c, targetDisplay) {
+        private fun dpToPx(dp: Int): Int =
+            (dp * context.resources.displayMetrics.density).toInt()
         override fun onCreate(b: Bundle?) {
             super.onCreate(b)
             val root = FrameLayout(context).apply { setBackgroundColor(Color.TRANSPARENT) }
