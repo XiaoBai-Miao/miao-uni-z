@@ -775,10 +775,38 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupTouchForwarding() {
+        // 缓存反射结果，避免每次触摸都反射；同时采集一次诊断信息
+        val inputManager = getSystemService(Context.INPUT_SERVICE) as InputManager
+        var injectMethod: java.lang.reflect.Method? = null
+        var setDisplayIdM: java.lang.reflect.Method? = null
+        var setDeviceIdM: java.lang.reflect.Method? = null
+        try {
+            injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
+            setDisplayIdM = MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
+            setDeviceIdM = MotionEvent::class.java.getMethod("setDeviceId", Int::class.javaPrimitiveType)
+        } catch (e: Exception) { Log.e("Miao", "Touch reflect init failed: ${e.message}") }
+
+        // 查找真实触摸屏 deviceId（用于诊断）
+        var touchDeviceId = -1
+        try {
+            for (id in inputManager.inputDeviceIds) {
+                val dev = inputManager.getInputDevice(id)
+                if (dev != null && (dev.sources and InputDevice.SOURCE_TOUCHSCREEN) != 0) { touchDeviceId = id; break }
+            }
+        } catch (e: Exception) {}
+
+        var diagLogged = false
         surfaceView.setOnTouchListener { v, event ->
             val vd = virtualDisplay ?: return@setOnTouchListener false
             val display = vd.display ?: return@setOnTouchListener false
             val displayId = display.displayId
+
+            if (!diagLogged) {
+                diagLogged = true
+                Log.i("Miao", "Touch setup: targetDisplayId=$displayId " +
+                        "surfaceView=${v.width}x${v.height} display=${display.width}x${display.height} " +
+                        "touchDeviceId=$touchDeviceId injectMethodAvail=${injectMethod != null}")
+            }
 
             // 使用 SurfaceView 的实际像素尺寸做坐标映射，而不是 display.width
             // display.width 可能返回虚拟屏的逻辑宽度，与渲染分辨率不一致
@@ -796,35 +824,26 @@ class MainActivity : AppCompatActivity() {
             te.setLocation(mappedX, mappedY)
             try {
                 if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
-                // 设置目标 displayId
-                MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType).invoke(te, displayId)
+                setDisplayIdM?.invoke(te, displayId)
                 // 设置 source 为触摸屏
                 te.source = InputDevice.SOURCE_TOUCHSCREEN
-                // 尝试设置 deviceId 为真实触摸屏设备（如果存在）
-                try {
-                    val inputManager = getSystemService(Context.INPUT_SERVICE) as InputManager
-                    val deviceIds = inputManager.inputDeviceIds
-                    var touchDeviceId = -1
-                    for (id in deviceIds) {
-                        val dev = inputManager.getInputDevice(id)
-                        if (dev != null && (dev.sources and InputDevice.SOURCE_TOUCHSCREEN) != 0) {
-                            touchDeviceId = id
-                            break
-                        }
-                    }
-                    if (touchDeviceId != -1) {
-                        MotionEvent::class.java.getMethod("setDeviceId", Int::class.javaPrimitiveType).invoke(te, touchDeviceId)
-                    }
-                } catch (e: Exception) { /* deviceId 设置失败不阻断主流程 */ }
+                if (touchDeviceId != -1) setDeviceIdM?.invoke(te, touchDeviceId)
 
-                // 注入事件: mode=2 (INJECT_INPUT_EVENT_MODE_ASYNC)
-                val injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
-                val result = injectMethod.invoke(getSystemService(Context.INPUT_SERVICE), te, 2) as Boolean
+                if (injectMethod == null) {
+                    Log.e("Miao", "Touch inject unavailable (reflect failed)")
+                    return@setOnTouchListener true
+                }
+                // 注入事件: 优先 mode=2 (ASYNC)，返回 false 时回退 mode=0 (AS_IS)
+                var result = injectMethod.invoke(inputManager, te, 2) as Boolean
                 if (!result) {
-                    Log.w("Miao", "Touch inject returned false for action=${event.action}")
+                    Log.w("Miao", "Touch inject mode=2 returned false, retry mode=0")
+                    result = injectMethod.invoke(inputManager, te, 0) as Boolean
+                }
+                if (!result && event.action == MotionEvent.ACTION_DOWN) {
+                    Log.w("Miao", "Touch inject failed both modes: displayId=$displayId action=${event.action}")
                 }
             } catch (ex: Exception) {
-                Log.e("Miao", "Touch inject failed: ${ex.message}")
+                Log.e("Miao", "Touch inject exception: ${ex.message}")
             } finally {
                 te.recycle()
             }
@@ -974,22 +993,26 @@ class MainActivity : AppCompatActivity() {
 
             if (event.action == MotionEvent.ACTION_MOVE) {
                 val rawXPercent = event.rawX / screenW
+                val isDouble = prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)
                 if (v.id == R.id.drag_handle_left) {
-                    val leftP = rawXPercent.coerceIn(0.1f, 0.45f)
-                    guidelineLeft.setGuidelinePercent(leftP)
-                    if (prefs.getBoolean(KEY_LOCK_RATIO, false)) {
-                        val targetCenterW = (screenH - 84) * (16f/9f)
-                        guidelineRight.setGuidelinePercent((leftP + (targetCenterW / screenW)).coerceAtMost(1.0f))
-                    } else if (prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)) {
+                    if (isDouble) {
+                        // 双翼：左右翼对称，右栏宽度 = 左栏宽度，始终可见
+                        // 注意：锁定 16:9 时实时拖动保持对称，精确比例由"应用16:9"按钮处理，
+                        // 避免在拖动时无脑加上 targetCenterW/screenW 导致右栏被挤出屏幕而消失。
+                        val leftP = rawXPercent.coerceIn(0.1f, 0.45f)
+                        guidelineLeft.setGuidelinePercent(leftP)
                         guidelineRight.setGuidelinePercent(1.0f - leftP)
+                    } else {
+                        // 单翼：左栏可加宽，右栏已隐藏
+                        val leftP = rawXPercent.coerceIn(0.1f, 0.8f)
+                        guidelineLeft.setGuidelinePercent(leftP)
+                        guidelineRight.setGuidelinePercent(1.0f)
                     }
-                } else if (v.id == R.id.drag_handle_right) {
-                    val rightP = rawXPercent.coerceIn(0.55f, 0.95f)
+                } else if (v.id == R.id.drag_handle_right && isDouble) {
+                    // 仅双翼模式有右 handle：左右对称
+                    val rightP = rawXPercent.coerceIn(0.55f, 0.9f)
                     guidelineRight.setGuidelinePercent(rightP)
-                    if (prefs.getBoolean(KEY_LOCK_RATIO, false)) {
-                        val targetCenterW = (screenH - 84) * (16f/9f)
-                        guidelineLeft.setGuidelinePercent((rightP - (targetCenterW / screenW)).coerceAtLeast(0.05f))
-                    }
+                    guidelineLeft.setGuidelinePercent(1.0f - rightP)
                 }
                 prefs.edit().putFloat(KEY_GUIDE_PERCENT, (guidelineLeft.layoutParams as ConstraintLayout.LayoutParams).guidePercent).apply()
                 adjustForScreenRatio(mainLayout); updateVirtualDisplaySize()
