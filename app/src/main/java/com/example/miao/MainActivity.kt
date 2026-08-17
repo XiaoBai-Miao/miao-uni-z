@@ -20,6 +20,7 @@ import android.hardware.display.VirtualDisplay
 import android.hardware.input.InputManager
 import android.media.MediaMetadata
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
@@ -112,6 +113,19 @@ class MainActivity : AppCompatActivity() {
     
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeMediaController: MediaController? = null
+
+    companion object {
+        // 供 NotificationListener 回调访问 MainActivity 实例（跨进程通知服务）
+        @Volatile var instance: MainActivity? = null
+    }
+
+    // 兜底轮询：系统未回调 onActiveSessionsChanged 时仍能发现新播放源
+    private val mediaPollRunnable = object : Runnable {
+        override fun run() {
+            updateActiveMediaSession()
+            uiHandler.postDelayed(this, 3000)
+        }
+    }
 
     private var floatingBall: View? = null
     private var currentSettingsOverlay: View? = null
@@ -257,7 +271,10 @@ class MainActivity : AppCompatActivity() {
         startUiUpdateTimer()
         uiHandler.post(timeRunnable)
         adjustForScreenRatio(mainLayout)
+        instance = this
         initMediaSessionListener()
+        // 启动 MediaSession 兜底轮询，确保酷狗等播放源开始播放后能显示封面
+        uiHandler.post(mediaPollRunnable)
     }
 
     private fun getPrimaryContext(): Context {
@@ -970,16 +987,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateActiveMediaSession() {
+    internal fun updateActiveMediaSession() {
         try {
-            val controllers = mediaSessionManager?.getActiveSessions(ComponentName(this, NotificationListener::class.java))
+            val expected = ComponentName(this, NotificationListener::class.java)
+            val controllers = mediaSessionManager?.getActiveSessions(expected)
             if (!controllers.isNullOrEmpty()) {
-                activeMediaController?.unregisterCallback(mediaCallback)
-                activeMediaController = controllers[0]
-                activeMediaController?.registerCallback(mediaCallback)
+                val newCtl = controllers[0]
+                // 仅当控制源变化时重新注册回调，避免每轮询重置封面
+                if (newCtl !== activeMediaController) {
+                    activeMediaController?.unregisterCallback(mediaCallback)
+                    activeMediaController = newCtl
+                    activeMediaController?.registerCallback(mediaCallback)
+                    Log.i("Miao", "Active MediaSession bound: ${newCtl.packageName}")
+                }
+                // 始终刷新一次元数据（标题/封面可能已变化）
                 mediaCallback.onMetadataChanged(activeMediaController?.metadata)
+            } else {
+                Log.w("Miao", "No active MediaSession found (通知监听是否已授权?)")
             }
-        } catch (ex: Exception) {}
+        } catch (ex: Exception) {
+            Log.e("Miao", "updateActiveMediaSession failed: ${ex.message}")
+        }
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -1056,6 +1084,8 @@ class MainActivity : AppCompatActivity() {
         // 移除所有 Handler 回调，防止内存泄漏
         uiHandler.removeCallbacks(timeRunnable)
         uiHandler.removeCallbacks(uiUpdateRunnable)
+        uiHandler.removeCallbacks(mediaPollRunnable)
+        instance = null
 
         // 注销 MediaSession 回调
         try { activeMediaController?.unregisterCallback(mediaCallback) } catch (e: Exception) {}
@@ -1078,7 +1108,16 @@ class MainActivity : AppCompatActivity() {
         floatingBall = null
     }
 
-    class NotificationListener : android.service.notification.NotificationListenerService()
+    class NotificationListener : android.service.notification.NotificationListenerService() {
+        override fun onListenerConnected() {
+            // 通知监听服务连上后立刻尝试发现当前播放源
+            instance?.updateActiveMediaSession()
+        }
+        override fun onActiveSessionsChanged(activeSessions: MutableList<MediaSession.Token>?) {
+            // 系统媒体会话列表变化（如酷狗开始/切换播放）时重新发现封面
+            instance?.updateActiveMediaSession()
+        }
+    }
     class HintPresentation(c: Context, private val targetDisplay: Display) : Presentation(c, targetDisplay) {
         private fun dpToPx(dp: Int): Int =
             (dp * context.resources.displayMetrics.density).toInt()
