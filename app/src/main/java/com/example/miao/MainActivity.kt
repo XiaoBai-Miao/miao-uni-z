@@ -798,11 +798,19 @@ class MainActivity : AppCompatActivity() {
         var injectMethod: java.lang.reflect.Method? = null
         var setDisplayIdM: java.lang.reflect.Method? = null
         var setDeviceIdM: java.lang.reflect.Method? = null
+        var mDisplayIdField: java.lang.reflect.Field? = null
         try {
             injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
             setDisplayIdM = MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
             setDeviceIdM = MotionEvent::class.java.getMethod("setDeviceId", Int::class.javaPrimitiveType)
         } catch (e: Exception) { Log.e("Miao", "Touch reflect init failed: ${e.message}") }
+        // 兜底：setDisplayId 方法被 non-SDK 限制时，尝试反射 mDisplayId 私有字段
+        if (setDisplayIdM == null) {
+            try {
+                mDisplayIdField = MotionEvent::class.java.getDeclaredField("mDisplayId")
+                mDisplayIdField?.isAccessible = true
+            } catch (e: Exception) { Log.e("Miao", "mDisplayId field reflect failed: ${e.message}") }
+        }
 
         // 查找真实触摸屏 deviceId（用于诊断）
         var touchDeviceId = -1
@@ -842,7 +850,11 @@ class MainActivity : AppCompatActivity() {
             te.setLocation(mappedX, mappedY)
             try {
                 if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
-                setDisplayIdM?.invoke(te, displayId)
+                when {
+                    setDisplayIdM != null -> setDisplayIdM.invoke(te, displayId)
+                    mDisplayIdField != null -> mDisplayIdField.set(te, displayId)
+                    else -> Log.e("Miao", "Cannot set event displayId (method & field both unavailable)")
+                }
                 // 设置 source 为触摸屏
                 te.source = InputDevice.SOURCE_TOUCHSCREEN
                 if (touchDeviceId != -1) setDeviceIdM?.invoke(te, touchDeviceId)
@@ -1109,10 +1121,30 @@ class MainActivity : AppCompatActivity() {
         floatingBall = null
     }
 
-    class NotificationListener : android.service.notification.NotificationListenerService() {
+    class NotificationListener : android.service.notification.NotificationListenerService(),
+        MediaSessionManager.OnActiveSessionsChangedListener {
         override fun onListenerConnected() {
             // 通知监听服务连上后立刻尝试发现当前播放源
             instance?.updateActiveMediaSession()
+            registerSessionListener()
+        }
+        override fun onListenerDisconnected() {
+            unregisterSessionListener()
+        }
+        private fun registerSessionListener() {
+            try {
+                val mgr = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+                mgr.addOnActiveSessionsChangedListener(this, ComponentName(this, NotificationListener::class.java))
+                Log.i("Miao", "MediaSession listener registered")
+            } catch (e: Exception) {
+                Log.e("Miao", "registerSessionListener failed: ${e.message}")
+            }
+        }
+        private fun unregisterSessionListener() {
+            try {
+                val mgr = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
+                mgr.removeOnActiveSessionsChangedListener(this)
+            } catch (e: Exception) {}
         }
         override fun onActiveSessionsChanged(activeSessions: MutableList<MediaSession.Token>?) {
             // 系统媒体会话列表变化（如酷狗开始/切换播放）时重新发现封面
