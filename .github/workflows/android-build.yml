@@ -15,6 +15,7 @@ jobs:
     # 授予发布权限
     permissions:
       contents: write
+      issues: write
 
     steps:
       - name: Checkout Code
@@ -38,21 +39,34 @@ jobs:
           if [ ! -s app/platform.jks ]; then echo "Keystore is empty!"; exit 1; fi
 
       - name: Build Release APK
+        id: build
+        continue-on-error: true
         run: ./gradlew assembleRelease
+
+      - name: Capture build error
+        if: steps.build.outcome == 'failure'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./gradlew assembleRelease 2>&1 | tail -150 > /tmp/build_err.txt || true
+          gh issue create --repo XiaoBai-Miao/miao-uni-z --title "CI Build Error $(date +%s)" --body-file /tmp/build_err.txt
 
       - name: Get Version Name
         id: get_version
+        if: steps.build.outcome == 'success'
         run: |
           VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
           echo "VERSION=$VERSION_NAME" >> $GITHUB_ENV
 
       - name: Upload Release Artifact
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Miao-Release-APK
           path: app/build/outputs/apk/release/*.apk
 
       - name: Create or Update GitHub Release
+        if: steps.build.outcome == 'success'
         uses: softprops/action-gh-release@v1
         with:
           # 如果是标签推送，使用标签名；如果是普通推送，使用 'latest'
