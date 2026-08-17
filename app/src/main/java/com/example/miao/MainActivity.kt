@@ -826,19 +826,10 @@ class MainActivity : AppCompatActivity() {
         var injectMethod: java.lang.reflect.Method? = null
         var setDisplayIdM: java.lang.reflect.Method? = null
         var setDeviceIdM: java.lang.reflect.Method? = null
-        var mDisplayIdField: java.lang.reflect.Field? = null
-        try {
-            injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
-            setDisplayIdM = MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType)
-            setDeviceIdM = MotionEvent::class.java.getMethod("setDeviceId", Int::class.javaPrimitiveType)
-        } catch (e: Exception) { Log.e("Miao", "Touch reflect init failed: ${e.message}") }
-        // 兜底：setDisplayId 方法被 non-SDK 限制时，尝试反射 mDisplayId 私有字段
-        if (setDisplayIdM == null) {
-            try {
-                mDisplayIdField = MotionEvent::class.java.getDeclaredField("mDisplayId")
-                mDisplayIdField?.isAccessible = true
-            } catch (e: Exception) { Log.e("Miao", "mDisplayId field reflect failed: ${e.message}") }
-        }
+        // 分开 try：Android 9 上 setDisplayId/setDeviceId 不存在，不能连累其它方法解析
+        try { injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType) } catch (e: Exception) { Log.e("Miao", "reflect injectInputEvent failed: ${e.message}") }
+        try { setDisplayIdM = MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType) } catch (e: Exception) { Log.e("Miao", "reflect setDisplayId failed (API<29 无此方法，属正常): ${e.message}") }
+        try { setDeviceIdM = MotionEvent::class.java.getMethod("setDeviceId", Int::class.javaPrimitiveType) } catch (e: Exception) { Log.e("Miao", "reflect setDeviceId failed (API<29 无此方法，属正常): ${e.message}") }
 
         // 查找真实触摸屏 deviceId（用于诊断）
         var touchDeviceId = -1
@@ -850,6 +841,12 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {}
 
         var diagLogged = false
+        // P (API 28) 系统级输入转发器: IInputForwarder binder 对象
+        // 由 InputManager.createInputForwarder(displayId) 创建，服务端原生按 displayId 注入,
+        // 绕开 API 28 Java 层完全没有 setDisplayId/mDisplayId 的平台缺失
+        var inputForwarder: Any? = null
+        var fwdMethod: java.lang.reflect.Method? = null
+        var fwdDisplayId = -1
         surfaceView.setOnTouchListener { v, event ->
             val vd = virtualDisplay ?: return@setOnTouchListener false
             val display = vd.display ?: return@setOnTouchListener false
@@ -873,32 +870,62 @@ class MainActivity : AppCompatActivity() {
             val mappedX = event.x * scaleX
             val mappedY = event.y * scaleY
 
-            // 复制事件并设置目标 displayId
+            // 复制事件
             val te = MotionEvent.obtain(event)
             te.setLocation(mappedX, mappedY)
             try {
                 if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
-                when {
-                    setDisplayIdM != null -> setDisplayIdM.invoke(te, displayId)
-                    mDisplayIdField != null -> mDisplayIdField.set(te, displayId)
-                    else -> Log.e("Miao", "Cannot set event displayId (method & field both unavailable)")
+
+                // 惰性创建 IInputForwarder（每个 displayId 一次，虚拟屏重建后自动换新）
+                if (fwdDisplayId != displayId) {
+                    fwdDisplayId = displayId
+                    inputForwarder = null
+                    fwdMethod = null
+                    try {
+                        val imClass = InputManager::class.java
+                        val imInstance = imClass.getMethod("getInstance").invoke(null)
+                        inputForwarder = imClass
+                            .getMethod("createInputForwarder", Int::class.javaPrimitiveType)
+                            .invoke(imInstance, displayId)
+                        fwdMethod = Class.forName("android.app.IInputForwarder")
+                            .getMethod("forwardEvent", android.view.InputEvent::class.java)
+                        Log.i("Miao", "IInputForwarder ready for display $displayId")
+                    } catch (e: Exception) {
+                        Log.w("Miao", "createInputForwarder failed: ${e.message}")
+                    }
                 }
+
                 // 设置 source 为触摸屏
                 te.source = InputDevice.SOURCE_TOUCHSCREEN
                 if (touchDeviceId != -1) setDeviceIdM?.invoke(te, touchDeviceId)
 
-                if (injectMethod == null) {
-                    Log.e("Miao", "Touch inject unavailable (reflect failed)")
-                    return@setOnTouchListener true
-                }
-                // 注入事件: 优先 mode=2 (ASYNC)，返回 false 时回退 mode=0 (AS_IS)
-                var result = injectMethod.invoke(inputManager, te, 2) as Boolean
-                if (!result) {
-                    Log.w("Miao", "Touch inject mode=2 returned false, retry mode=0")
-                    result = injectMethod.invoke(inputManager, te, 0) as Boolean
-                }
-                if (!result && event.action == MotionEvent.ACTION_DOWN) {
-                    Log.w("Miao", "Touch inject failed both modes: displayId=$displayId action=${event.action}")
+                var handled = false
+                when {
+                    // 主路径 (P/28): 系统级 forwarder，服务端原生按 displayId 注入
+                    inputForwarder != null && fwdMethod != null -> {
+                        handled = try {
+                            fwdMethod!!.invoke(inputForwarder, te) as Boolean
+                        } catch (e: Exception) {
+                            Log.e("Miao", "forwardEvent exception: ${e.message}")
+                            inputForwarder = null
+                            false
+                        }
+                        if (!handled && event.action == MotionEvent.ACTION_DOWN)
+                            Log.w("Miao", "forwardEvent returned false (display=$displayId)")
+                    }
+                    // 回退路径 (29+): setDisplayId 存在时才直接注入
+                    setDisplayIdM != null && injectMethod != null -> {
+                        setDisplayIdM!!.invoke(te, displayId)
+                        handled = injectMethod!!.invoke(inputManager, te, 2) as Boolean
+                        if (!handled) handled = injectMethod!!.invoke(inputManager, te, 0) as Boolean
+                        if (!handled && event.action == MotionEvent.ACTION_DOWN)
+                            Log.w("Miao", "Touch inject failed both modes: displayId=$displayId")
+                    }
+                    else -> {
+                        // P 及以下若 forwarder 拿不到：绝不能无目标注入主屏（会在原车桌面产生幽灵触摸）
+                        if (event.action == MotionEvent.ACTION_DOWN)
+                            Log.e("Miao", "No display-targeted touch path available")
+                    }
                 }
             } catch (ex: Exception) {
                 Log.e("Miao", "Touch inject exception: ${ex.message}")
@@ -1030,10 +1057,20 @@ class MainActivity : AppCompatActivity() {
 
     internal fun updateActiveMediaSession() {
         try {
-            val expected = ComponentName(this, NotificationListener::class.java)
-            val controllers = mediaSessionManager?.getActiveSessions(expected)
+            // 首选: getActiveSessions(null) —— 平台签名系统应用持有 MEDIA_CONTENT_CONTROL
+            // 签名权限即可直取全部媒体会话，无需用户手动开启通知使用权(车机上往往无处授权)
+            val controllers = try {
+                mediaSessionManager?.getActiveSessions(null)
+            } catch (e: Exception) {
+                // 回退: 通知监听组件路径(需用户在设置里授权)
+                val expected = ComponentName(this, NotificationListener::class.java)
+                try { mediaSessionManager?.getActiveSessions(expected) } catch (e2: Exception) { null }
+            }
             if (!controllers.isNullOrEmpty()) {
-                val newCtl = controllers[0]
+                // 优先取"正在播放"的会话，其次列表第一个(酷狗等播放器通常排在活跃位)
+                val newCtl = controllers.firstOrNull {
+                    it.playbackState?.state == android.media.session.PlaybackState.STATE_PLAYING
+                } ?: controllers[0]
                 // 仅当控制源变化时重新注册回调，避免每轮询重置封面
                 if (newCtl !== activeMediaController) {
                     activeMediaController?.unregisterCallback(mediaCallback)
@@ -1044,7 +1081,7 @@ class MainActivity : AppCompatActivity() {
                 // 始终刷新一次元数据（标题/封面可能已变化）
                 mediaCallback.onMetadataChanged(activeMediaController?.metadata)
             } else {
-                Log.w("Miao", "No active MediaSession found (通知监听是否已授权?)")
+                Log.w("Miao", "No active MediaSession found")
             }
         } catch (ex: Exception) {
             Log.e("Miao", "updateActiveMediaSession failed: ${ex.message}")
