@@ -31,7 +31,6 @@
         android:roundIcon="@drawable/app_icon"
         android:supportsRtl="true"
         android:requestLegacyExternalStorage="true"
-        android:hiddenApiEnforcementPolicy="0"
         android:theme="@style/Theme.Miao">
         <activity
             android:name=".MainActivity"
