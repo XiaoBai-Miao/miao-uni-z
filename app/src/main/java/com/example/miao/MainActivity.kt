@@ -123,6 +123,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private val uiUpdateRunnable = object : Runnable {
+        override fun run() {
+            if (tvFloatingLog != null && logBuffer.isNotEmpty()) {
+                synchronized(logBuffer) { tvFloatingLog?.text = logBuffer.joinToString("\n"); logBuffer.clear() }
+            }
+            uiHandler.postDelayed(this, 500)
+        }
+    }
+
     private val mediaCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) {
             metadata?.let {
@@ -651,21 +660,58 @@ class MainActivity : AppCompatActivity() {
     @SuppressLint("ClickableViewAccessibility")
     private fun setupTouchForwarding() {
         surfaceView.setOnTouchListener { v, event ->
-            v.requestFocus()
             val vd = virtualDisplay ?: return@setOnTouchListener false
-            val displayId = vd.display.displayId
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION") vd.display.getMetrics(metrics)
-            val mappedX = event.x * (vd.display.width.toFloat() / v.width)
-            val mappedY = event.y * (vd.display.height.toFloat() / v.height)
-            val te = MotionEvent.obtain(event); te.setLocation(mappedX, mappedY)
-            try { 
+            val display = vd.display ?: return@setOnTouchListener false
+            val displayId = display.displayId
+
+            // 使用 SurfaceView 的实际像素尺寸做坐标映射，而不是 display.width
+            // display.width 可能返回虚拟屏的逻辑宽度，与渲染分辨率不一致
+            val targetW = if (surfaceView.width > 0) surfaceView.width else display.width
+            val targetH = if (surfaceView.height > 0) surfaceView.height else display.height
+            val viewW = v.width.toFloat().coerceAtLeast(1f)
+            val viewH = v.height.toFloat().coerceAtLeast(1f)
+            val scaleX = targetW.toFloat() / viewW
+            val scaleY = targetH.toFloat() / viewH
+            val mappedX = event.x * scaleX
+            val mappedY = event.y * scaleY
+
+            // 复制事件并设置目标 displayId
+            val te = MotionEvent.obtain(event)
+            te.setLocation(mappedX, mappedY)
+            try {
                 if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
+                // 设置目标 displayId
                 MotionEvent::class.java.getMethod("setDisplayId", Int::class.javaPrimitiveType).invoke(te, displayId)
+                // 设置 source 为触摸屏
                 te.source = InputDevice.SOURCE_TOUCHSCREEN
+                // 尝试设置 deviceId 为真实触摸屏设备（如果存在）
+                try {
+                    val inputManager = getSystemService(Context.INPUT_SERVICE) as InputManager
+                    val deviceIds = inputManager.inputDeviceIds
+                    var touchDeviceId = -1
+                    for (id in deviceIds) {
+                        val dev = inputManager.getInputDevice(id)
+                        if (dev != null && (dev.sources and InputDevice.SOURCE_TOUCHSCREEN) != 0) {
+                            touchDeviceId = id
+                            break
+                        }
+                    }
+                    if (touchDeviceId != -1) {
+                        MotionEvent::class.java.getMethod("setDeviceId", Int::class.javaPrimitiveType).invoke(te, touchDeviceId)
+                    }
+                } catch (e: Exception) { /* deviceId 设置失败不阻断主流程 */ }
+
+                // 注入事件: mode=2 (INJECT_INPUT_EVENT_MODE_ASYNC)
                 val injectMethod = InputManager::class.java.getMethod("injectInputEvent", android.view.InputEvent::class.java, Int::class.javaPrimitiveType)
-                injectMethod.invoke(getSystemService(Context.INPUT_SERVICE), te, 2) 
-            } catch (ex: Exception) { Log.e("Miao", "Touch Failed: ${ex.message}") } finally { te.recycle() }
+                val result = injectMethod.invoke(getSystemService(Context.INPUT_SERVICE), te, 2) as Boolean
+                if (!result) {
+                    Log.w("Miao", "Touch inject returned false for action=${event.action}")
+                }
+            } catch (ex: Exception) {
+                Log.e("Miao", "Touch inject failed: ${ex.message}")
+            } finally {
+                te.recycle()
+            }
             true
         }
     }
@@ -678,15 +724,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun runLogcatTask(bufferArgs: String, prefix: String, filter: String) {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val isOverlay = prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false)
         while (isListening.get()) {
             var process: Process? = null
-            try { 
-                val cmd = when { 
-                    !isOverlay -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V MUSIC_A2DP_TAG:V *:S"
-                    filter.isEmpty() -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V MUSIC_A2DP_TAG:V *:V"
-                    else -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V MUSIC_A2DP_TAG:V $filter:V *:S" 
+            try {
+                // 每次循环重新读取 isOverlay，确保设置变更后生效
+                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                val isOverlay = prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false)
+                val cmd = when {
+                    !isOverlay -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V *:S"
+                    filter.isEmpty() -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V *:V"
+                    else -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V $filter:V *:S"
                 }
                 process = Runtime.getRuntime().exec(cmd)
                 if (bufferArgs.contains("main")) processMain = process else processSystem = process
@@ -837,14 +884,8 @@ class MainActivity : AppCompatActivity() {
         dragHandleRight.setOnTouchListener(onTouch)
     }
 
-    private fun startUiUpdateTimer() { 
-        uiHandler.postDelayed(object : Runnable { 
-            override fun run() { 
-                if (tvFloatingLog != null && logBuffer.isNotEmpty()) { 
-                    synchronized(logBuffer) { tvFloatingLog?.text = logBuffer.joinToString("\n"); logBuffer.clear() } 
-                }; uiHandler.postDelayed(this, 500) 
-            } 
-        }, 500) 
+    private fun startUiUpdateTimer() {
+        uiHandler.postDelayed(uiUpdateRunnable, 500)
     }
     
     private fun updateVirtualDisplaySize() { 
@@ -853,24 +894,49 @@ class MainActivity : AppCompatActivity() {
         if (w > 0 && h > 0) virtualDisplay?.resize(w, h, 160) 
     }
     
-    private fun createVirtualDisplay(h: SurfaceHolder) { 
+    private fun createVirtualDisplay(h: SurfaceHolder) {
         val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
         val w = if (surfaceView.width > 0) surfaceView.width else 1280
         val hi = if (surfaceView.height > 0) surfaceView.height else 720
-        @SuppressLint("WrongConstant") val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
-        try { 
-            virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags) 
-        } catch (ex: Exception) { 
-            virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags) 
-        }
-        checkAndRunActiveMode() 
+        // VIRTUAL_DISPLAY_FLAG_TRUSTED (1 << 10) — 允许向虚拟屏注入触摸事件
+        // VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY 已弃用，PUBLIC + TRUSTED + PRESENTATION 组合可让 App 接收输入
+        @SuppressLint("WrongConstant") val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
+                (1 shl 10) // VIRTUAL_DISPLAY_FLAG_TRUSTED
+        virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags)
+        checkAndRunActiveMode()
     }
     
-    override fun onDestroy() { 
+    override fun onDestroy() {
         super.onDestroy()
+        // 停止 logcat 监听
         isListening.set(false)
         processMain?.destroy()
-        processSystem?.destroy() 
+        processSystem?.destroy()
+
+        // 移除所有 Handler 回调，防止内存泄漏
+        uiHandler.removeCallbacks(timeRunnable)
+        uiHandler.removeCallbacks(uiUpdateRunnable)
+
+        // 注销 MediaSession 回调
+        try { activeMediaController?.unregisterCallback(mediaCallback) } catch (e: Exception) {}
+        activeMediaController = null
+
+        // 释放 VirtualDisplay
+        try { virtualDisplay?.release() } catch (e: Exception) {}
+        virtualDisplay = null
+
+        // 销毁 HintPresentation
+        try { hintPresentation?.dismiss() } catch (e: Exception) {}
+        hintPresentation = null
+
+        // 移除所有悬浮窗
+        closeSettingsMenu()
+        hideLogOverlay()
+        floatingBall?.let { ball ->
+            try { getPrimaryWindowManager().removeView(ball) } catch (e: Exception) {}
+        }
+        floatingBall = null
     }
 
     class NotificationListener : android.service.notification.NotificationListenerService()
