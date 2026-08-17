@@ -198,16 +198,16 @@
                     android:textStyle="italic"
                     app:layout_constraintTop_toBottomOf="@id/tv_music_artist" />
 
-                <ProgressBar
-                    android:id="@+id/pb_music_progress"
-                    style="?android:attr/progressBarStyleHorizontal"
-                    android:layout_width="match_parent"
-                    android:layout_height="3dp"
-                    android:layout_marginBottom="4dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressTint="@color/accent_blue"
-                    app:layout_constraintBottom_toTopOf="@+id/tv_music_time" />
+            <ProgressBar
+                android:id="@+id/pb_music_progress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="3dp"
+                android:layout_marginBottom="4dp"
+                android:max="100"
+                android:progress="0"
+                android:progressDrawable="@drawable/dashboard_progress_music"
+                app:layout_constraintBottom_toTopOf="@+id/tv_music_time" />
 
                 <TextView
                     android:id="@+id/tv_music_time"
@@ -224,7 +224,7 @@
         <ProgressBar
             android:id="@+id/pb_speed_bar"
             style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="4dp"
+            android:layout_width="6dp"
             android:layout_height="0dp"
             android:layout_marginVertical="80dp"
             android:layout_marginStart="4dp"
@@ -251,7 +251,7 @@
                 android:layout_height="6dp"
                 android:layout_weight="1"
                 android:max="100"
-                android:progressTint="@color/accent_blue" />
+                android:progressDrawable="@drawable/dashboard_progress_battery" />
 
             <TextView
                 android:id="@+id/tv_soc"
@@ -347,7 +347,7 @@
         <ProgressBar
             android:id="@+id/pb_power_bar"
             style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="4dp"
+            android:layout_width="6dp"
             android:layout_height="0dp"
             android:layout_marginVertical="80dp"
             android:layout_marginEnd="4dp"

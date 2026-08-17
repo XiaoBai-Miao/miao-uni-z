@@ -1,22 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 车速竖向能量条：青蓝(低) → 紫(中) → 红(高) 三段语义渐变 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 轨道：半透明凹陷背景 -->
     <item android:id="@android:id/background">
         <shape>
-            <corners android:radius="4dp" />
-            <solid android:color="#22FFFFFF" />
+            <corners android:radius="6dp" />
+            <solid android:color="#1AFFFFFF" />
+            <stroke android:width="1dp" android:color="#14FFFFFF" />
         </shape>
     </item>
+    <!-- 进度填充：底→顶 青→紫→红 -->
     <item android:id="@android:id/progress">
         <clip android:clipOrientation="vertical" android:gravity="bottom">
             <shape>
-                <corners android:radius="4dp" />
+                <corners android:radius="6dp" />
                 <gradient
-                    android:startColor="#00E5FF"
-                    android:centerColor="#FFEA00"
-                    android:endColor="#FF1744"
-                    android:centerY="0.5"
+                    android:startColor="@color/color_primary"
+                    android:centerColor="#7C4DFF"
+                    android:endColor="@color/color_error"
+                    android:centerY="0.55"
                     android:angle="90" />
-                <stroke android:width="1dp" android:color="#40FFFFFF" />
+                <!-- 内发光描边 -->
+                <stroke android:width="1.5dp" android:color="#40FFFFFF" />
+            </shape>
+        </clip>
+    </item>
+    <!-- 顶部高光端帽：营造能量满溢感 -->
+    <item android:id="@android:id/secondaryProgress">
+        <clip android:clipOrientation="vertical" android:gravity="bottom">
+            <shape>
+                <corners android:radius="6dp" />
+                <gradient
+                    android:startColor="#00FFFFFF"
+                    android:endColor="#33FFFFFF"
+                    android:angle="90" />
             </shape>
         </clip>
     </item>

@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 音乐播放进度条：青蓝细线 + 半透明轨道 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
         <shape>
-            <corners android:radius="6dp" />
-            <solid android:color="#22888888" />
+            <corners android:radius="2dp" />
+            <solid android:color="#14FFFFFF" />
         </shape>
     </item>
     <item android:id="@android:id/progress">
         <clip>
             <shape>
-                <corners android:radius="6dp" />
+                <corners android:radius="2dp" />
                 <gradient
-                    android:startColor="#4CAF50"
-                    android:endColor="#FFEB3B"
+                    android:startColor="@color/color_primary_variant"
+                    android:endColor="@color/color_primary"
                     android:angle="0" />
             </shape>
         </clip>

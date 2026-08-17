@@ -1,22 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 功率竖向能量条：绿(回收) → 青(平衡) → 橙(高输出) 三段语义渐变 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 轨道 -->
     <item android:id="@android:id/background">
         <shape>
-            <corners android:radius="4dp" />
-            <solid android:color="#22FFFFFF" />
+            <corners android:radius="6dp" />
+            <solid android:color="#1AFFFFFF" />
+            <stroke android:width="1dp" android:color="#14FFFFFF" />
         </shape>
     </item>
+    <!-- 进度填充：底→顶 绿→青→橙 -->
     <item android:id="@android:id/progress">
         <clip android:clipOrientation="vertical" android:gravity="bottom">
             <shape>
-                <corners android:radius="4dp" />
+                <corners android:radius="6dp" />
                 <gradient
-                    android:startColor="#00E676"
-                    android:centerColor="#FFC107"
-                    android:endColor="#F44336"
-                    android:centerY="0.5"
+                    android:startColor="@color/color_success"
+                    android:centerColor="@color/color_primary"
+                    android:endColor="@color/color_warning"
+                    android:centerY="0.55"
                     android:angle="90" />
-                <stroke android:width="1dp" android:color="#40FFFFFF" />
+                <stroke android:width="1.5dp" android:color="#40FFFFFF" />
+            </shape>
+        </clip>
+    </item>
+    <!-- 顶部高光端帽 -->
+    <item android:id="@android:id/secondaryProgress">
+        <clip android:clipOrientation="vertical" android:gravity="bottom">
+            <shape>
+                <corners android:radius="6dp" />
+                <gradient
+                    android:startColor="#00FFFFFF"
+                    android:endColor="#33FFFFFF"
+                    android:angle="90" />
             </shape>
         </clip>
     </item>
