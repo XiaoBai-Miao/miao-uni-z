@@ -29,4 +29,28 @@
 
     <color name="hint_bg_color">#FFFFFF</color>
     <color name="hint_text_color">#000000</color>
+
+    <!-- ===== 统一语义化配色系统 (Material 风格) ===== -->
+    <color name="color_primary">#0077FF</color>
+    <color name="color_primary_variant">#005FCC</color>
+    <color name="color_on_primary">#FFFFFF</color>
+    <color name="color_primary_container">#D6E4FF</color>
+    <color name="color_on_primary_container">#001A40</color>
+
+    <color name="color_surface">#F0F2F5</color>
+    <color name="color_surface_variant">#E0E3E8</color>
+    <color name="color_surface_glass">#26FFFFFF</color>
+    <color name="color_on_surface">#1A1C1E</color>
+    <color name="color_on_surface_variant">#666666</color>
+    <color name="color_outline">#15000000</color>
+
+    <color name="color_success">#2E7D32</color>
+    <color name="color_warning">#F57C00</color>
+    <color name="color_error">#D32F2F</color>
+    <color name="color_scrim">#99000000</color>
+
+    <color name="mode_display">#0077FF</color>
+    <color name="mode_carplay">#2196F3</color>
+    <color name="mode_embed">#FF9800</color>
+    <color name="mode_mirror">#9C27B0</color>
 </resources>

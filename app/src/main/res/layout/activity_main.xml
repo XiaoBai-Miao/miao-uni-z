@@ -134,9 +134,9 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
             android:layout_marginHorizontal="12dp"
-            android:background="@drawable/wing_background"
+            android:background="@drawable/bg_card"
             android:padding="12dp"
-            android:elevation="4dp"
+            android:elevation="6dp"
             android:visibility="gone"
             app:layout_constraintBottom_toTopOf="@+id/bottom_info_left">
 
@@ -147,7 +147,8 @@
                 android:scaleType="centerCrop"
                 android:contentDescription="@null"
                 android:src="@android:drawable/ic_menu_report_image"
-                android:background="#15888888"
+                android:background="@drawable/bg_music_cover"
+                android:clipToOutline="true"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent" />
 

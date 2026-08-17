@@ -42,7 +42,9 @@ import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.animation.OvershootInterpolator
 import android.widget.ArrayAdapter
+import androidx.core.content.ContextCompat
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.FrameLayout
@@ -377,6 +379,10 @@ class MainActivity : AppCompatActivity() {
         tvTime.setTextColor(getColor(R.color.label_text_color))
     }
 
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density + 0.5f).toInt()
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun initFloatingBall() {
         if (!Settings.canDrawOverlays(this)) {
@@ -395,15 +401,20 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.TOP or Gravity.START; x = 5; y = 400
         }
         val ball = FrameLayout(getPrimaryContext()).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.parseColor("#80FFFFFF")); setStroke(2, Color.GRAY) }
-            addView(TextView(context).apply { text = "M"; setTextColor(Color.BLACK); gravity = Gravity.CENTER; textSize = 14f; typeface = Typeface.DEFAULT_BOLD })
+            background = ContextCompat.getDrawable(context, R.drawable.bg_floating_ball)
+            elevation = 12f
+            val icon = ImageView(context).apply {
+                setImageResource(R.drawable.ic_speedometer)
+                layoutParams = FrameLayout.LayoutParams(dpToPx(42), dpToPx(42)).apply { gravity = Gravity.CENTER }
+            }
+            addView(icon)
         }
         ball.setOnTouchListener(object : View.OnTouchListener {
             private var ix: Int = 0; private var iy: Int = 0; private var tx: Float = 0f; private var ty: Float = 0f; private var moved = false
             override fun onTouch(v: View, e: MotionEvent): Boolean {
                 when(e.action) {
-                    MotionEvent.ACTION_DOWN -> { ix = params.x; iy = params.y; tx = e.rawX; ty = e.rawY; moved = false; return true }
-                    MotionEvent.ACTION_MOVE -> { 
+                    MotionEvent.ACTION_DOWN -> { ix = params.x; iy = params.y; tx = e.rawX; ty = e.rawY; moved = false; ball.animate().scaleX(0.88f).scaleY(0.88f).setDuration(120).start(); return true }
+                    MotionEvent.ACTION_MOVE -> {
                         var nx = ix + (e.rawX - tx).toInt()
                         if (nx > 100 && nx < screenWidth - 180) nx = if (nx < screenWidth / 2) 5 else screenWidth - 85
                         params.x = nx; params.y = iy + (e.rawY - ty).toInt()
@@ -413,6 +424,7 @@ class MainActivity : AppCompatActivity() {
                     MotionEvent.ACTION_UP -> { 
                         params.x = if (params.x < screenWidth / 2) 5 else screenWidth - 85
                         wm.updateViewLayout(ball, params)
+                        ball.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
                         if (!moved) { 
                             v.performClick()
                             if (currentSettingsOverlay != null) closeSettingsMenu() else showOverlaySettings()
@@ -442,62 +454,96 @@ class MainActivity : AppCompatActivity() {
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION") wm.defaultDisplay.getMetrics(metrics)
         val ballParams = (floatingBall?.layoutParams as? WindowManager.LayoutParams) ?: return
-        
+
         val rootOverlay = FrameLayout(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(-1, -1)
             setOnClickListener { closeSettingsMenu() }
         }
 
         val overlayParams = WindowManager.LayoutParams().apply {
-            width = 550; height = 750; type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            width = 560; height = 760; type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or WindowManager.LayoutParams.FLAG_DIM_BEHIND
-            dimAmount = 0.4f; format = PixelFormat.TRANSLUCENT; gravity = Gravity.TOP or Gravity.START
-            x = if (ballParams.x < metrics.widthPixels / 2) ballParams.x + 90 else ballParams.x - 560
-            y = (ballParams.y - 100).coerceAtLeast(50)
+            dimAmount = 0.5f; format = PixelFormat.TRANSLUCENT; gravity = Gravity.TOP or Gravity.START
+            x = if (ballParams.x < metrics.widthPixels / 2) ballParams.x + 95 else ballParams.x - 570
+            y = (ballParams.y - 120).coerceAtLeast(50)
         }
-        
-        val container = LinearLayout(ctx).apply { 
-            orientation = LinearLayout.VERTICAL; setPadding(25, 20, 25, 25)
-            background = GradientDrawable().apply { setColor(getColor(R.color.panel_background)); cornerRadius = 30f; setStroke(2, Color.GRAY) }
+
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(24), dpToPx(20), dpToPx(24), dpToPx(20))
+            background = ContextCompat.getDrawable(ctx, R.drawable.bg_card)
+            elevation = 16f
             setOnClickListener { }
         }
-        
-        val scroll = ScrollView(ctx).apply { 
+
+        val scroll = ScrollView(ctx).apply {
             layoutParams = FrameLayout.LayoutParams(-1, -2)
+            isVerticalScrollBarEnabled = false
             addView(container)
         }
-        rootOverlay.addView(scroll, FrameLayout.LayoutParams(550, -2))
+        rootOverlay.addView(scroll, FrameLayout.LayoutParams(560, -2))
 
-        container.addView(TextView(ctx).apply { text = getString(R.string.settings_title); textSize = 15f; setTextColor(getColor(R.color.speed_text_color)); gravity = Gravity.CENTER; setPadding(0,0,0,15) })
-        
-        val rowStyle = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, 15) }
-        val bDouble = Button(ctx).apply { text = getString(R.string.style_double); textSize = 11f; layoutParams = LinearLayout.LayoutParams(0, 80, 1f).apply { setMargins(4,0,4,0) } }
-        val bSingle = Button(ctx).apply { text = getString(R.string.style_single); textSize = 11f; layoutParams = LinearLayout.LayoutParams(0, 80, 1f).apply { setMargins(4,0,4,0) } }
-        fun upSty() { 
-            bDouble.setBackgroundColor(if(isDouble) Color.parseColor("#4CAF50") else Color.LTGRAY)
-            bSingle.setBackgroundColor(if(!isDouble) Color.parseColor("#4CAF50") else Color.LTGRAY)
-            bDouble.setTextColor(Color.WHITE); bSingle.setTextColor(Color.WHITE) 
+        // 标题
+        container.addView(TextView(ctx).apply {
+            text = getString(R.string.settings_title)
+            textSize = 18f; setTextColor(getColor(R.color.color_on_surface))
+            typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dpToPx(18))
+        })
+
+        // 样式切换（单/双翼）
+        val rowStyle = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dpToPx(14)) }
+        val bDouble = makeRoundButton(ctx, getString(R.string.style_double))
+        val bSingle = makeRoundButton(ctx, getString(R.string.style_single))
+        fun upSty() {
+            bDouble.isSelected = isDouble
+            bSingle.isSelected = !isDouble
+            applyButtonStyle(bDouble)
+            applyButtonStyle(bSingle)
         }
-        bDouble.setOnClickListener { isDouble = true; upSty() }; bSingle.setOnClickListener { isDouble = false; upSty() }
-        upSty(); rowStyle.addView(bDouble); rowStyle.addView(bSingle); container.addView(rowStyle)
+        bDouble.setOnClickListener { isDouble = true; upSty() }
+        bSingle.setOnClickListener { isDouble = false; upSty() }
+        upSty(); rowStyle.addView(bDouble); rowStyle.addView(bSingle)
+        container.addView(rowStyle)
 
-        val modeList = listOf(Triple(MODE_DISPLAY_ONLY, getString(R.string.mode_display), Color.GRAY), Triple(MODE_CARPAY, getString(R.string.mode_carplay), Color.parseColor("#2196F3")), Triple(MODE_EMBED_APP, getString(R.string.mode_embed), Color.parseColor("#FF9800")), Triple(MODE_MIRROR, getString(R.string.mode_mirror), Color.parseColor("#9C27B0")))
+        // 显示模式分组标题
+        container.addView(TextView(ctx).apply {
+            text = getString(R.string.mode_section)
+            textSize = 13f; setTextColor(getColor(R.color.color_on_surface_variant))
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, dpToPx(6), 0, dpToPx(8))
+        })
+
+        // 显示模式（2 列网格，选中态用各自模式色）
+        val modeList = listOf(
+            Triple(MODE_DISPLAY_ONLY, getString(R.string.mode_display), R.color.mode_display),
+            Triple(MODE_CARPAY, getString(R.string.mode_carplay), R.color.mode_carplay),
+            Triple(MODE_EMBED_APP, getString(R.string.mode_embed), R.color.mode_embed),
+            Triple(MODE_MIRROR, getString(R.string.mode_mirror), R.color.mode_mirror)
+        )
         val modeBtns = mutableListOf<Button>()
-        val btnPick = Button(ctx).apply { text = getString(R.string.pick_app); textSize = 11f; layoutParams = LinearLayout.LayoutParams(-1, 80).apply { setMargins(0,5,0,15) }; setOnClickListener { showAppPickerOnPrimary() }; visibility = if(selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE }
+        val btnPick = makeRoundButton(ctx, getString(R.string.pick_app)).apply {
+            layoutParams = LinearLayout.LayoutParams(-1, dpToPx(52)).apply { setMargins(0, dpToPx(4), 0, dpToPx(12)) }
+            setOnClickListener { showAppPickerOnPrimary() }
+            visibility = if (selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE
+        }
+        applyNeutralButton(btnPick)
 
         val modesGrid = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
         for (i in modeList.indices step 2) {
             val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
             for (j in 0..1) if (i + j < modeList.size) {
-                val (m, l, c) = modeList[i + j]
-                val b = Button(ctx).apply { text = l; textSize = 11f; isAllCaps = false; layoutParams = LinearLayout.LayoutParams(0, 85, 1f).apply { setMargins(4, 4, 4, 4) }
-                    if (selectedMode == m) { setBackgroundColor(c); setTextColor(Color.WHITE) } else { setBackgroundResource(R.color.button_inactive_bg); setTextColor(getColor(R.color.button_inactive_text)) }
-                    setOnClickListener { 
-                        selectedMode = m; btnPick.visibility = if (selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE
-                        modeBtns.forEach { btn -> 
-                            val mIdx = modeBtns.indexOf(btn)
-                            if (modeList[mIdx].first == selectedMode) { btn.setBackgroundColor(modeList[mIdx].third); btn.setTextColor(Color.WHITE) } 
-                            else { btn.setBackgroundResource(R.color.button_inactive_bg); btn.setTextColor(getColor(R.color.button_inactive_text)) } 
+                val (m, l, cRes) = modeList[i + j]
+                val b = makeRoundButton(ctx, l).apply {
+                    layoutParams = LinearLayout.LayoutParams(0, dpToPx(56), 1f).apply { setMargins(dpToPx(4), dpToPx(4), dpToPx(4), dpToPx(4)) }
+                    isSelected = (selectedMode == m)
+                    applyModeButtonStyle(this, cRes)
+                    setOnClickListener {
+                        selectedMode = m
+                        btnPick.visibility = if (selectedMode == MODE_EMBED_APP) View.VISIBLE else View.GONE
+                        modeBtns.forEachIndexed { idx, btn ->
+                            btn.isSelected = (modeList[idx].first == selectedMode)
+                            applyModeButtonStyle(btn, modeList[idx].third)
                         }
                     }
                 }.also { modeBtns.add(it) }
@@ -506,25 +552,89 @@ class MainActivity : AppCompatActivity() {
             modesGrid.addView(row)
         }
         container.addView(modesGrid); container.addView(btnPick)
-        
-        val cbLock = CheckBox(ctx).apply { text = getString(R.string.lock_ratio); textSize = 12f; setTextColor(getColor(R.color.speed_text_color)); isChecked = prefs.getBoolean(KEY_LOCK_RATIO, false) }
-        val cbDrag = CheckBox(ctx).apply { text = getString(R.string.allow_drag); textSize = 12f; setTextColor(getColor(R.color.speed_text_color)); isChecked = prefs.getBoolean(KEY_ENABLE_DRAG, true) }
-        val rS = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 10, 0, 0) }; rS.addView(cbLock); rS.addView(cbDrag); container.addView(rS)
-        
-        val cbMusic = CheckBox(ctx).apply { text = getString(R.string.music_card); textSize = 12f; setTextColor(getColor(R.color.speed_text_color)); isChecked = showMusic }
-        container.addView(cbMusic)
 
-        val btnApply = Button(ctx).apply { text = getString(R.string.apply_settings); textSize = 13f; setBackgroundColor(Color.DKGRAY); setTextColor(Color.WHITE); layoutParams = LinearLayout.LayoutParams(-1, 100).apply { setMargins(0,20,0,0) }
-            setOnClickListener { 
+        // 选项卡片分组
+        val optCard = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dpToPx(16), dpToPx(12), dpToPx(16), dpToPx(12))
+            background = ContextCompat.getDrawable(ctx, R.drawable.bg_button_neutral)
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { setMargins(0, dpToPx(14), 0, 0) }
+        }
+        val cbLock = CheckBox(ctx).apply { text = getString(R.string.lock_ratio); textSize = 13f; setTextColor(getColor(R.color.color_on_surface)); isChecked = prefs.getBoolean(KEY_LOCK_RATIO, false) }
+        val cbDrag = CheckBox(ctx).apply { text = getString(R.string.allow_drag); textSize = 13f; setTextColor(getColor(R.color.color_on_surface)); isChecked = prefs.getBoolean(KEY_ENABLE_DRAG, true) }
+        val rS = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dpToPx(4), 0, 0) }; rS.addView(cbLock); rS.addView(cbDrag)
+        optCard.addView(rS)
+        val cbMusic = CheckBox(ctx).apply { text = getString(R.string.music_card); textSize = 13f; setTextColor(getColor(R.color.color_on_surface)); isChecked = showMusic }
+        optCard.addView(cbMusic)
+        container.addView(optCard)
+
+        // 应用按钮
+        val btnApply = Button(ctx).apply {
+            text = getString(R.string.apply_settings); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(getColor(R.color.color_on_primary))
+            background = ContextCompat.getDrawable(ctx, R.drawable.bg_button_primary)
+            layoutParams = LinearLayout.LayoutParams(-1, dpToPx(56)).apply { setMargins(0, dpToPx(20), 0, 0) }
+            setOnClickListener {
                 prefs.edit().putInt(KEY_MODE, selectedMode).putBoolean(KEY_UI_STYLE_DOUBLE, isDouble).putBoolean(KEY_LOCK_RATIO, cbLock.isChecked).putBoolean(KEY_ENABLE_DRAG, cbDrag.isChecked).putBoolean(KEY_SHOW_MUSIC_CARD, cbMusic.isChecked).apply()
                 applyUiStyle(); if (cbLock.isChecked) apply16x9Now() else resetLayoutToNormal()
                 virtualDisplay?.release(); virtualDisplay = null; createVirtualDisplay(surfaceView.holder)
                 if (selectedMode == MODE_CARPAY) launchCarplayOnMain()
-                closeSettingsMenu() 
-            } 
+                closeSettingsMenu()
+            }
         }
         container.addView(btnApply)
-        try { wm.addView(rootOverlay, overlayParams); currentSettingsOverlay = rootOverlay } catch (ex: Exception) {}
+
+        try {
+            wm.addView(rootOverlay, overlayParams); currentSettingsOverlay = rootOverlay
+            // 弹出缩放动画
+            container.scaleX = 0.85f; container.scaleY = 0.85f; container.alpha = 0f
+            container.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(240).setInterpolator(OvershootInterpolator()).start()
+        } catch (ex: Exception) {}
+    }
+
+    private fun makeRoundButton(ctx: Context, text: String): Button {
+        return Button(ctx, null, 0, androidx.appcompat.R.style.Widget_AppCompat_Button).apply {
+            this.text = text
+            this.isAllCaps = false
+            this.textSize = 13f
+            this.gravity = Gravity.CENTER
+            this.minimumHeight = 0
+            this.minHeight = 0
+            this.includeFontPadding = false
+        }
+    }
+
+    private fun applyButtonStyle(btn: Button) {
+        val c = btn.context
+        if (btn.isSelected) {
+            btn.background = ContextCompat.getDrawable(c, R.drawable.bg_button_primary)
+            btn.setTextColor(ContextCompat.getColor(c, R.color.color_on_primary))
+        } else {
+            btn.background = ContextCompat.getDrawable(c, R.drawable.bg_button_neutral)
+            btn.setTextColor(ContextCompat.getColor(c, R.color.color_on_surface_variant))
+        }
+    }
+
+    private fun applyModeButtonStyle(btn: Button, colorRes: Int) {
+        val c = btn.context
+        if (btn.isSelected) {
+            val color = ContextCompat.getColor(c, colorRes)
+            btn.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dpToPx(14).toFloat()
+                setColor(color)
+            }
+            btn.setTextColor(Color.WHITE)
+        } else {
+            btn.background = ContextCompat.getDrawable(c, R.drawable.bg_button_neutral)
+            btn.setTextColor(ContextCompat.getColor(c, R.color.color_on_surface_variant))
+        }
+    }
+
+    private fun applyNeutralButton(btn: Button) {
+        val c = btn.context
+        btn.background = ContextCompat.getDrawable(c, R.drawable.bg_button_neutral)
+        btn.setTextColor(ContextCompat.getColor(c, R.color.color_on_surface_variant))
     }
 
     private fun showAppPickerOnPrimary() {
@@ -602,19 +712,25 @@ class MainActivity : AppCompatActivity() {
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
             format = PixelFormat.TRANSLUCENT; gravity = Gravity.TOP or Gravity.START; x = 100; y = 100 
         }
-        val root = LinearLayout(getPrimaryContext()).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.parseColor("#CC000000")) }
-        val header = LinearLayout(root.context).apply { 
-            orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Color.DKGRAY); setPadding(20, 10, 20, 10)
-            setOnTouchListener { v, e -> 
-                when(e.action) { 
+        val root = LinearLayout(getPrimaryContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            background = ContextCompat.getDrawable(context, R.drawable.bg_card)
+            elevation = 12f
+        }
+        val header = LinearLayout(root.context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = ContextCompat.getDrawable(root.context, R.drawable.bg_button_primary)
+            setPadding(20, 10, 20, 10)
+            setOnTouchListener { v, e ->
+                when(e.action) {
                     MotionEvent.ACTION_DOWN -> { v.performClick(); true }
                     MotionEvent.ACTION_MOVE -> { params.x = (e.rawX - 400).toInt(); params.y = (e.rawY - 20).toInt(); wm.updateViewLayout(root, params); true }
-                    else -> false 
-                } 
+                    else -> false
+                }
             }
         }
-        header.addView(TextView(root.context).apply { text = "[M]=Main [S]=System"; setTextColor(Color.YELLOW); layoutParams = LinearLayout.LayoutParams(0, -2, 1f) } )
-        header.addView(TextView(root.context).apply { text = " ✕ "; setTextColor(Color.WHITE); setOnClickListener { hideLogOverlay() } } )
+        header.addView(TextView(root.context).apply { text = "[M]=Main [S]=System"; setTextColor(ContextCompat.getColor(root.context, R.color.color_on_primary)); textSize = 12f; typeface = Typeface.DEFAULT_BOLD; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) } )
+        header.addView(TextView(root.context).apply { text = " ✕ "; setTextColor(ContextCompat.getColor(root.context, R.color.color_on_primary)); setTextSize(16f); setOnClickListener { hideLogOverlay() } } )
         root.addView(header)
         val tv = TextView(root.context).apply { setTextColor(Color.WHITE); textSize = 11f; setPadding(10, 5, 10, 5) }
         root.addView(tv)
@@ -941,14 +1057,35 @@ class MainActivity : AppCompatActivity() {
 
     class NotificationListener : android.service.notification.NotificationListenerService()
     class HintPresentation(c: Context, private val targetDisplay: Display) : Presentation(c, targetDisplay) {
-        override fun onCreate(b: Bundle?) { 
+        override fun onCreate(b: Bundle?) {
             super.onCreate(b)
-            val l = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setBackgroundResource(R.color.hint_bg_color) }
-            l.addView(TextView(context).apply { 
+            val root = FrameLayout(context).apply { setBackgroundColor(Color.TRANSPARENT) }
+            val card = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dpToPx(48), dpToPx(40), dpToPx(48), dpToPx(40))
+                background = ContextCompat.getDrawable(context, R.drawable.bg_card)
+                elevation = 20f
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT
+                ).apply { gravity = Gravity.CENTER }
+            }
+            val icon = ImageView(context).apply {
+                setImageResource(R.drawable.ic_speedometer)
+                setColorFilter(ContextCompat.getColor(context, R.color.color_primary))
+                layoutParams = LinearLayout.LayoutParams(dpToPx(64), dpToPx(64)).apply {
+                    bottomMargin = dpToPx(16); gravity = Gravity.CENTER_HORIZONTAL
+                }
+            }
+            val tv = TextView(context).apply {
                 text = context.getString(R.string.hdmi_ready, targetDisplay.displayId)
-                setTextColor(context.getColor(R.color.hint_text_color)); textSize = 24f; gravity = Gravity.CENTER 
-            })
-            setContentView(l) 
+                setTextColor(ContextCompat.getColor(context, R.color.color_on_surface))
+                textSize = 22f; gravity = Gravity.CENTER; typeface = Typeface.DEFAULT_BOLD
+            }
+            card.addView(icon); card.addView(tv)
+            root.addView(card)
+            setContentView(root)
         }
     }
 }

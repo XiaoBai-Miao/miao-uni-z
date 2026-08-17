@@ -14,6 +14,7 @@
     <string name="mode_carplay">CarPlay</string>
     <string name="mode_embed">内嵌App</string>
     <string name="mode_mirror">镜像屏</string>
+    <string name="mode_section">显示模式</string>
     <string name="lock_ratio">锁定16:9</string>
     <string name="allow_drag">允许拖动</string>
     <string name="music_card">音乐卡片</string>

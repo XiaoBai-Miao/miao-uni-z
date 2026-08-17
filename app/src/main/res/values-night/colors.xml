@@ -26,4 +26,32 @@
 
     <color name="hint_bg_color">#121416</color>
     <color name="hint_text_color">#FFFFFF</color>
+
+    <!-- ===== 统一语义化配色系统 (Material 风格) ===== -->
+    <!-- 主色：青蓝科技色 -->
+    <color name="color_primary">#00E5FF</color>
+    <color name="color_primary_variant">#00B8D4</color>
+    <color name="color_on_primary">#001316</color>
+    <color name="color_primary_container">#00363D</color>
+    <color name="color_on_primary_container">#9FF3FF</color>
+
+    <!-- 表面/背景层级 -->
+    <color name="color_surface">#1A1C1E</color>
+    <color name="color_surface_variant">#24282B</color>
+    <color name="color_surface_glass">#26FFFFFF</color>
+    <color name="color_on_surface">#E6E9EA</color>
+    <color name="color_on_surface_variant">#8E9192</color>
+    <color name="color_outline">#4DFFFFFF</color>
+
+    <!-- 语义色 -->
+    <color name="color_success">#00E676</color>
+    <color name="color_warning">#FFB300</color>
+    <color name="color_error">#FF5252</color>
+    <color name="color_scrim">#99000000</color>
+
+    <!-- 模式标识色 (用于设置面板模式按钮) -->
+    <color name="mode_display">#00E5FF</color>
+    <color name="mode_carplay">#2196F3</color>
+    <color name="mode_embed">#FF9800</color>
+    <color name="mode_mirror">#9C27B0</color>
 </resources>
