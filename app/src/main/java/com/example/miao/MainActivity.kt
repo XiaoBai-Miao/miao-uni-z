@@ -115,11 +115,6 @@ class MainActivity : AppCompatActivity() {
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeMediaController: MediaController? = null
 
-    companion object {
-        // 供 NotificationListener 回调访问 MainActivity 实例（跨进程通知服务）
-        @Volatile var instance: MainActivity? = null
-    }
-
     // 兜底轮询：系统未回调 onActiveSessionsChanged 时仍能发现新播放源
     private val mediaPollRunnable = object : Runnable {
         override fun run() {
@@ -205,6 +200,8 @@ class MainActivity : AppCompatActivity() {
         private const val MUSIC_KUGOU_TAG = "KuGouMusicInterfaceService"
         private const val MUSIC_WIDGET_TAG = "MusicWidgetView"
         private const val MUSIC_A2DP_TAG = "A2dpMediaBrowserService"
+        // 供 NotificationListener 回调访问 MainActivity 实例（跨进程通知服务）
+        @Volatile var instance: MainActivity? = null
     }
 
     private var processMain: Process? = null
