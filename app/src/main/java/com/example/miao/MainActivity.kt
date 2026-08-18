@@ -814,7 +814,7 @@ class MainActivity : AppCompatActivity() {
             )
             setExemptions.isAccessible = true
             setExemptions.invoke(vmRuntime, arrayOf("L"))
-            Log.i("Miao", "Hidden API exemption applied (VMRuntime)")
+            Log.i("Miao", "Miao v1.9.9 starting | Hidden API exemption applied (VMRuntime)")
         } catch (e: Exception) {
             Log.w("Miao", "bypassHiddenApi failed: ${e.message}")
         }
@@ -884,14 +884,15 @@ class MainActivity : AppCompatActivity() {
                     try {
                         val imClass = InputManager::class.java
                         val imInstance = imClass.getMethod("getInstance").invoke(null)
+                        Log.i("Miao", "createInputForwarder: invoking on display $displayId")
                         inputForwarder = imClass
                             .getMethod("createInputForwarder", Int::class.javaPrimitiveType)
                             .invoke(imInstance, displayId)
                         fwdMethod = Class.forName("android.app.IInputForwarder")
                             .getMethod("forwardEvent", android.view.InputEvent::class.java)
-                        Log.i("Miao", "IInputForwarder ready for display $displayId")
+                        Log.i("Miao", "IInputForwarder ready for display $displayId (fwd=$inputForwarder)")
                     } catch (e: Exception) {
-                        Log.w("Miao", "createInputForwarder failed: ${e.message}")
+                        Log.e("Miao", "createInputForwarder failed: ${e.javaClass.simpleName}: ${e.message}", e)
                     }
                 }
 
