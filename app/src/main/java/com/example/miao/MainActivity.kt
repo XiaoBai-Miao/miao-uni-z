@@ -114,6 +114,9 @@ class MainActivity : AppCompatActivity() {
     
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeMediaController: MediaController? = null
+    // logcat 酷狗通路最近一次命中音乐行的时间(elapsedRealtime)，
+    // 用于抑制 MediaSession 通路对酷狗显示的覆盖
+    @Volatile private var lastLogcatMusicAt: Long = 0L
 
     // 兜底轮询：系统未回调 onActiveSessionsChanged 时仍能发现新播放源
     private val mediaPollRunnable = object : Runnable {
@@ -157,10 +160,12 @@ class MainActivity : AppCompatActivity() {
                     if (artist != null) tvMusicArtist.text = artist
                     if (album != null) tvMusicLyric.text = album
                     musicDuration = duration
+                    // 酷狗 logcat 通路活跃时不允许 MediaSession 通路清空封面/重置显示
+                    val kugouAlive = SystemClock.elapsedRealtime() - lastLogcatMusicAt < 10_000
                     if (art != null) {
                         ivMusicCover.setImageBitmap(art)
                         lastCoverUrl = null
-                    } else {
+                    } else if (!kugouAlive) {
                         ivMusicCover.setImageResource(android.R.drawable.ic_menu_report_image)
                     }
                     updateMusicTime(0)
@@ -198,6 +203,7 @@ class MainActivity : AppCompatActivity() {
         private const val MUSIC_TAG = "AvrcpControllerService"
         private const val MUSIC_PLAY_TAG = "BtMusicPlayImpl"
         private const val MUSIC_KUGOU_TAG = "KuGouMusicInterfaceService"
+        private const val MUSIC_KUGOU_IMPL_TAG = "KuGouPlayImpl"
         private const val MUSIC_WIDGET_TAG = "MusicWidgetView"
         private const val MUSIC_A2DP_TAG = "A2dpMediaBrowserService"
         // 供 NotificationListener 回调访问 MainActivity 实例（跨进程通知服务）
@@ -814,7 +820,7 @@ class MainActivity : AppCompatActivity() {
             )
             setExemptions.isAccessible = true
             setExemptions.invoke(vmRuntime, arrayOf("L"))
-            Log.i("Miao", "Miao v1.9.9 starting | Hidden API exemption applied (VMRuntime)")
+            Log.i("Miao", "Miao v1.9.10 starting | Hidden API exemption applied (VMRuntime)")
         } catch (e: Exception) {
             Log.w("Miao", "bypassHiddenApi failed: ${e.message}")
         }
@@ -952,9 +958,9 @@ class MainActivity : AppCompatActivity() {
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 val isOverlay = prefs.getBoolean(KEY_SHOW_LOG_OVERLAY, false)
                 val cmd = when {
-                    !isOverlay -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V *:S"
-                    filter.isEmpty() -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V *:V"
-                    else -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V $filter:V *:S"
+                    !isOverlay -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_KUGOU_IMPL_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V *:S"
+                    filter.isEmpty() -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_KUGOU_IMPL_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V *:V"
+                    else -> "logcat $bufferArgs -v raw $DEFAULT_TAG:V $POWER_TAG:V $SOC_TAG:V $MUSIC_TAG:V $MUSIC_PLAY_TAG:V $MUSIC_KUGOU_TAG:V $MUSIC_KUGOU_IMPL_TAG:V $MUSIC_WIDGET_TAG:V $MUSIC_A2DP_TAG:V $filter:V *:S"
                 }
                 process = Runtime.getRuntime().exec(cmd)
                 if (bufferArgs.contains("main")) processMain = process else processSystem = process
@@ -985,6 +991,7 @@ class MainActivity : AppCompatActivity() {
                         
                         // 综合音乐解析 (支持歌名、歌手、封面 URL、专辑/歌词)
                         if (logLine.contains("onTrackChanged TrackInfo") || logLine.contains("prev MM title") || logLine.contains("getMediaTitle: result:") || logLine.contains("isActiveTimeOut")) {
+                            lastLogcatMusicAt = SystemClock.elapsedRealtime()
                             val title = Regex("(?:mTrackTitle|title|result|song):? ?=?(?:result:)? ?[\"']?([^,\n\\]\"']+)[\"']?").find(logLine)?.groupValues?.get(1)?.trim()
                             val artist = Regex("(?:mArtistName|artist|singer)=[\"']?([^,\n\\]\"']+)[\"']?").find(logLine)?.groupValues?.get(1)?.trim()
                             val album = Regex("(?:mAlbumTitle|album)=[\"']?([^,\n\\]\"']+)[\"']?").find(logLine)?.groupValues?.get(1)?.trim()
@@ -1003,9 +1010,37 @@ class MainActivity : AppCompatActivity() {
                                 updateMusicTime(0)
                             }
                         }
-                        if (logLine.contains("getPlayBackState state") || logLine.contains("position=")) { 
+                        // 酷狗车机版自有轮询行(与桌面无关, miao 全屏时依然有数据):
+                        // KuGouPlayImpl: tvPlayWidgetTitle getCurPlaySong: KGMusic{songName='..', singerName='..', albumImgMedium='http://..', duration=..}
+                        if (logLine.contains("getCurPlaySong")) {
+                            lastLogcatMusicAt = SystemClock.elapsedRealtime()
+                            val kTitle = Regex("songName='([^']*)'").find(logLine)?.groupValues?.get(1)?.trim()
+                            val kArtist = Regex("singerName='([^']*)'").find(logLine)?.groupValues?.get(1)?.trim()
+                            val kAlbum = Regex("albumName='([^']*)'").find(logLine)?.groupValues?.get(1)?.trim()
+                            val kCover = Regex("albumImgMedium='([^']*)'").find(logLine)?.groupValues?.get(1)?.trim()
+                                ?: Regex("albumImgSmall='([^']*)'").find(logLine)?.groupValues?.get(1)?.trim()
+                                ?: Regex("albumImg='([^']*)'").find(logLine)?.groupValues?.get(1)?.trim()
+                            val kLen = Regex("duration=([0-9]+)").find(logLine)?.groupValues?.get(1)?.toLongOrNull() ?: 0
+                            uiHandler.post {
+                                if (kTitle != null && kTitle != "null" && kTitle.isNotEmpty()) tvMusicTitle.text = kTitle
+                                if (kArtist != null && kArtist != "null" && kArtist.isNotEmpty()) tvMusicArtist.text = kArtist
+                                if (kAlbum != null && kAlbum != "null" && kAlbum.isNotEmpty()) tvMusicLyric.text = kAlbum
+                                if (kLen > 0) musicDuration = kLen
+                                if (kCover != null && kCover.startsWith("http") && kCover != lastCoverUrl) {
+                                    lastCoverUrl = kCover
+                                    loadCoverFromUrl(kCover)
+                                }
+                            }
+                        }
+                        if (logLine.contains("getPlayBackState state") || logLine.contains("position=")) {
                             val pos = Regex("(?:time|position=)([0-9]+)").find(logLine)?.groupValues?.get(1)?.toLongOrNull() ?: 0
-                            uiHandler.post { updateMusicTime(pos) } 
+                            uiHandler.post { updateMusicTime(pos) }
+                        }
+                        // KuGouPlayImpl 进度行: "duration : 240532 , position : 150320"
+                        if (logLine.contains("duration : ") && logLine.contains("position : ")) {
+                            val pos = Regex("position : ([0-9]+)").find(logLine)?.groupValues?.get(1)?.toLongOrNull() ?: 0
+                            val dur = Regex("duration : ([0-9]+)").find(logLine)?.groupValues?.get(1)?.toLongOrNull() ?: 0
+                            uiHandler.post { if (dur > 0) musicDuration = dur; updateMusicTime(pos) }
                         }
                     }
                 }
@@ -1058,6 +1093,11 @@ class MainActivity : AppCompatActivity() {
 
     internal fun updateActiveMediaSession() {
         try {
+            // 酷狗走 logcat 私有通路(KuGouMusicInterfaceService)，不发布 MediaSession。
+            // 若 logcat 通路最近 10s 内有音乐数据，且无正在播放的标准会话，
+            // 则 MediaSession 通路不要介入，避免把酷狗信息覆盖成别的 app(如网易云)导致歌名乱跳。
+            val kugouAlive = SystemClock.elapsedRealtime() - lastLogcatMusicAt < 10_000
+
             // 首选: getActiveSessions(null) —— 平台签名系统应用持有 MEDIA_CONTENT_CONTROL
             // 签名权限即可直取全部媒体会话，无需用户手动开启通知使用权(车机上往往无处授权)
             val controllers = try {
@@ -1068,19 +1108,29 @@ class MainActivity : AppCompatActivity() {
                 try { mediaSessionManager?.getActiveSessions(expected) } catch (e2: Exception) { null }
             }
             if (!controllers.isNullOrEmpty()) {
-                // 优先取"正在播放"的会话，其次列表第一个(酷狗等播放器通常排在活跃位)
+                // 只认"正在播放"的会话；暂停的(如后台网易云残留会话)不能接管显示
                 val newCtl = controllers.firstOrNull {
                     it.playbackState?.state == android.media.session.PlaybackState.STATE_PLAYING
-                } ?: controllers[0]
-                // 仅当控制源变化时重新注册回调，避免每轮询重置封面
-                if (newCtl !== activeMediaController) {
+                }
+                if (newCtl == null) {
+                    // 无播放会话：若 logcat 酷狗通路活跃则什么都不做；
+                    // 若也不活跃，解除绑定即可(保留已显示内容，避免闪烁)
+                    if (!kugouAlive) {
+                        activeMediaController?.unregisterCallback(mediaCallback)
+                        activeMediaController = null
+                    }
+                    return
+                }
+                // 用 sessionToken 判等(每次 getActiveSessions 都返回新对象，引用比较必为 false
+                // ——这是此前每 3s 重复绑定+强制刷新导致歌名乱跳的根因)
+                if (newCtl.sessionToken != activeMediaController?.sessionToken) {
                     activeMediaController?.unregisterCallback(mediaCallback)
                     activeMediaController = newCtl
                     activeMediaController?.registerCallback(mediaCallback)
                     Log.i("Miao", "Active MediaSession bound: ${newCtl.packageName}")
+                    mediaCallback.onMetadataChanged(activeMediaController?.metadata)
                 }
-                // 始终刷新一次元数据（标题/封面可能已变化）
-                mediaCallback.onMetadataChanged(activeMediaController?.metadata)
+                // 会话未变时不强制刷新 metadata(回调会自动触发)
             } else {
                 Log.w("Miao", "No active MediaSession found")
             }
@@ -1121,8 +1171,17 @@ class MainActivity : AppCompatActivity() {
                     guidelineRight.setGuidelinePercent(rightP)
                     guidelineLeft.setGuidelinePercent(1.0f - rightP)
                 }
+                // 拖动中绝不 resize 虚拟屏/写盘：
+                // VirtualDisplay.resize() 会导致内嵌 app 反复重排+SurfaceFlinger 拒收 buffer，
+                // 高频触发(每次 MOVE)直接把内嵌 app 卡死并踢出 task(车机日志已证实)。
+                // 拖动中只更新布局，松手后再统一处理一次。
+            } else if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
+                // 持久化 + 一次性收尾：延迟 100ms 等布局 pass 完成后按最终尺寸 resize 虚拟屏
                 prefs.edit().putFloat(KEY_GUIDE_PERCENT, (guidelineLeft.layoutParams as ConstraintLayout.LayoutParams).guidePercent).apply()
-                adjustForScreenRatio(mainLayout); updateVirtualDisplaySize()
+                mainLayout.postDelayed({
+                    adjustForScreenRatio(mainLayout)
+                    updateVirtualDisplaySize()
+                }, 100)
             } else if (event.action == MotionEvent.ACTION_DOWN) v.performClick()
             true
         }
