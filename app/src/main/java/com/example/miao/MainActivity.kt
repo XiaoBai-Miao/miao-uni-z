@@ -226,8 +226,8 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
 
         // 虚拟屏模式检测：仅当主屏为 1920×1080 时启用专属布局
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val isVirtualMode = prefs.getBoolean(KEY_UI_STYLE_VIRTUAL, false)
+        val vmPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val isVirtualMode = vmPrefs.getBoolean(KEY_UI_STYLE_VIRTUAL, false)
         val isMainScreen1080p = isPrimaryScreen1080p()
         if (isVirtualMode && isMainScreen1080p) {
             useVirtualLayout = true
