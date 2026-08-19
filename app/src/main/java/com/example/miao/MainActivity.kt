@@ -188,6 +188,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREFS_NAME = "MiaoSettings"
         private const val KEY_MODE = "run_mode"
         private const val KEY_UI_STYLE_DOUBLE = "ui_style_double_wing"
+        private const val KEY_UI_STYLE_VIRTUAL = "ui_style_virtual"
         private const val KEY_LAST_APP = "last_app_pkg"
         private const val KEY_SHOW_LOG_OVERLAY = "show_log_overlay"
         private const val KEY_LOG_FILTER_KEYWORD = "log_filter_keyword"
@@ -214,13 +215,26 @@ class MainActivity : AppCompatActivity() {
     private var processSystem: Process? = null
     private val isListening = AtomicBoolean(false)
 
+    // 虚拟屏专属布局是否激活（仅 1920×1080 主屏 + 用户选择虚拟屏模式）
+    private var useVirtualLayout = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // 进程级豁免 non-SDK (hidden) 接口限制，使车机(Android 9)上可通过反射调用
         // MotionEvent.setDisplayId / InputManager.injectInputEvent 等 @hide 方法
         bypassHiddenApi()
         enableEdgeToEdge()
-        setContentView(R.layout.activity_main)
+
+        // 虚拟屏模式检测：仅当主屏为 1920×1080 时启用专属布局
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val isVirtualMode = prefs.getBoolean(KEY_UI_STYLE_VIRTUAL, false)
+        val isMainScreen1080p = isPrimaryScreen1080p()
+        if (isVirtualMode && isMainScreen1080p) {
+            useVirtualLayout = true
+            setContentView(R.layout.activity_main_virtual)
+        } else {
+            setContentView(R.layout.activity_main)
+        }
         val mainLayout = findViewById<ConstraintLayout>(R.id.main)
         ViewCompat.setOnApplyWindowInsetsListener(mainLayout) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -265,8 +279,10 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btn_stop_app_main).setOnClickListener { stopCurrentApp() }
         applyUiStyle()
-        applyGuidelinePreference(mainLayout)
-        setupResizing(mainLayout)
+        if (!useVirtualLayout) {
+            applyGuidelinePreference(mainLayout)
+            setupResizing(mainLayout)
+        }
         setupTouchForwarding()
         
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -277,7 +293,7 @@ class MainActivity : AppCompatActivity() {
         initGlobalVirtualDisplay()
         startUiUpdateTimer()
         uiHandler.post(timeRunnable)
-        adjustForScreenRatio(mainLayout)
+        if (!useVirtualLayout) adjustForScreenRatio(mainLayout)
         instance = this
         initMediaSessionListener()
         // 启动 MediaSession 兜底轮询，确保酷狗等播放源开始播放后能显示封面
@@ -298,7 +314,17 @@ class MainActivity : AppCompatActivity() {
         val isDouble = prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)
         val showMusic = prefs.getBoolean(KEY_SHOW_MUSIC_CARD, false)
         val canDrag = prefs.getBoolean(KEY_ENABLE_DRAG, true)
-        
+
+        // 虚拟屏专属布局: 不使用左右翼/拖动, 音乐卡片始终显示在底栏右侧
+        if (useVirtualLayout) {
+            musicCard.visibility = View.VISIBLE
+            rightSidePanel.visibility = View.GONE
+            powerContainerLeft.visibility = View.GONE
+            dragHandleLeft.visibility = View.GONE
+            dragHandleRight.visibility = View.GONE
+            return
+        }
+
         // 核心：无论何种模式，只要开启开关就显示音乐卡片
         musicCard.visibility = if (showMusic) View.VISIBLE else View.GONE
 
@@ -472,6 +498,9 @@ class MainActivity : AppCompatActivity() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         var selectedMode = prefs.getInt(KEY_MODE, MODE_DISPLAY_ONLY)
         var isDouble = prefs.getBoolean(KEY_UI_STYLE_DOUBLE, true)
+        var isVirtual = prefs.getBoolean(KEY_UI_STYLE_VIRTUAL, false)
+        // 双翼和虚拟屏互斥: 选了虚拟屏就不再双翼
+        if (isVirtual) isDouble = false
         val showMusic = prefs.getBoolean(KEY_SHOW_MUSIC_CARD, false)
         val wm = getPrimaryWindowManager()
         val ctx = getPrimaryContext()
@@ -515,19 +544,23 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 0, 0, dpToPx(18))
         })
 
-        // 样式切换（单/双翼）
+        // 样式切换（双翼/单翼/虚拟屏）
         val rowStyle = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dpToPx(14)) }
         val bDouble = makeRoundButton(ctx, getString(R.string.style_double))
         val bSingle = makeRoundButton(ctx, getString(R.string.style_single))
+        val bVirtual = makeRoundButton(ctx, getString(R.string.style_virtual))
         fun upSty() {
-            bDouble.isSelected = isDouble
-            bSingle.isSelected = !isDouble
+            bDouble.isSelected = isDouble && !isVirtual
+            bSingle.isSelected = !isDouble && !isVirtual
+            bVirtual.isSelected = isVirtual
             applyButtonStyle(bDouble)
             applyButtonStyle(bSingle)
+            applyButtonStyle(bVirtual)
         }
-        bDouble.setOnClickListener { isDouble = true; upSty() }
-        bSingle.setOnClickListener { isDouble = false; upSty() }
-        upSty(); rowStyle.addView(bDouble); rowStyle.addView(bSingle)
+        bDouble.setOnClickListener { isDouble = true; isVirtual = false; upSty() }
+        bSingle.setOnClickListener { isDouble = false; isVirtual = false; upSty() }
+        bVirtual.setOnClickListener { isVirtual = true; isDouble = false; upSty() }
+        upSty(); rowStyle.addView(bDouble); rowStyle.addView(bSingle); rowStyle.addView(bVirtual)
         container.addView(rowStyle)
 
         // 显示模式分组标题
@@ -599,8 +632,14 @@ class MainActivity : AppCompatActivity() {
             background = ContextCompat.getDrawable(ctx, R.drawable.bg_button_primary)
             layoutParams = LinearLayout.LayoutParams(-1, dpToPx(56)).apply { setMargins(0, dpToPx(20), 0, 0) }
             setOnClickListener {
-                prefs.edit().putInt(KEY_MODE, selectedMode).putBoolean(KEY_UI_STYLE_DOUBLE, isDouble).putBoolean(KEY_LOCK_RATIO, cbLock.isChecked).putBoolean(KEY_ENABLE_DRAG, cbDrag.isChecked).putBoolean(KEY_SHOW_MUSIC_CARD, cbMusic.isChecked).apply()
-                applyUiStyle(); if (cbLock.isChecked) apply16x9Now() else resetLayoutToNormal()
+                prefs.edit().putInt(KEY_MODE, selectedMode).putBoolean(KEY_UI_STYLE_DOUBLE, isDouble).putBoolean(KEY_UI_STYLE_VIRTUAL, isVirtual).putBoolean(KEY_LOCK_RATIO, cbLock.isChecked).putBoolean(KEY_ENABLE_DRAG, cbDrag.isChecked).putBoolean(KEY_SHOW_MUSIC_CARD, cbMusic.isChecked).apply()
+                // 虚拟屏模式需要切换布局文件, 重建 Activity
+                if (isVirtual != useVirtualLayout) {
+                    closeSettingsMenu()
+                    recreate()
+                    return@setOnClickListener
+                }
+                applyUiStyle(); if (!useVirtualLayout) { if (cbLock.isChecked) apply16x9Now() else resetLayoutToNormal() }
                 virtualDisplay?.release(); virtualDisplay = null; createVirtualDisplay(surfaceView.holder)
                 if (selectedMode == MODE_CARPAY) launchCarplayOnMain()
                 closeSettingsMenu()
@@ -797,6 +836,28 @@ class MainActivity : AppCompatActivity() {
         } catch (ex: Exception) { showHintDelayed() } 
     }
 
+    /**
+     * 检测主物理屏(Display 0)分辨率是否为 1920×1080。
+     * 虚拟屏专属布局仅在 1920×1080 主屏上有效,其它分辨率回退到标准布局。
+     */
+    private fun isPrimaryScreen1080p(): Boolean {
+        return try {
+            val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            val display = dm.getDisplay(0) ?: return false
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION") display.getMetrics(metrics)
+            // 宽 1920 / 高 1080 (允许容差以应对 density 计算误差)
+            val w = metrics.widthPixels
+            val h = metrics.heightPixels
+            val match = (w == 1920 && h == 1080) || (w == 1080 && h == 1920)
+            Log.i("Miao", "Primary screen: ${w}x${h}, is1080p=$match")
+            match
+        } catch (e: Exception) {
+            Log.w("Miao", "isPrimaryScreen1080p failed: ${e.message}")
+            false
+        }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     /**
      * 解除本进程对 non-SDK (hidden) 接口的访问限制。
@@ -820,7 +881,7 @@ class MainActivity : AppCompatActivity() {
             )
             setExemptions.isAccessible = true
             setExemptions.invoke(vmRuntime, arrayOf("L"))
-            Log.i("Miao", "Miao v1.9.10 starting | Hidden API exemption applied (VMRuntime)")
+            Log.i("Miao", "Miao v1.9.11 starting | Hidden API exemption applied (VMRuntime)")
         } catch (e: Exception) {
             Log.w("Miao", "bypassHiddenApi failed: ${e.message}")
         }
@@ -1193,7 +1254,9 @@ class MainActivity : AppCompatActivity() {
         uiHandler.postDelayed(uiUpdateRunnable, 500)
     }
     
-    private fun updateVirtualDisplaySize() { 
+    private fun updateVirtualDisplaySize() {
+        // 虚拟屏专属布局: 固定 1920×720 分辨率, 不随 surfaceView 尺寸变化
+        if (useVirtualLayout) return
         val w = surfaceView.width
         val h = surfaceView.height
         if (w > 0 && h > 0) virtualDisplay?.resize(w, h, 160) 
@@ -1201,15 +1264,84 @@ class MainActivity : AppCompatActivity() {
     
     private fun createVirtualDisplay(h: SurfaceHolder) {
         val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
-        val w = if (surfaceView.width > 0) surfaceView.width else 1280
-        val hi = if (surfaceView.height > 0) surfaceView.height else 720
+        // 虚拟屏专属布局: 固定 1920×720 分辨率, 投放到 1920×720 物理副屏
+        val w: Int
+        val hi: Int
+        if (useVirtualLayout) {
+            w = 1920
+            hi = 720
+        } else {
+            w = if (surfaceView.width > 0) surfaceView.width else 1280
+            hi = if (surfaceView.height > 0) surfaceView.height else 720
+        }
         // VIRTUAL_DISPLAY_FLAG_TRUSTED (1 << 10) — 允许向虚拟屏注入触摸事件
         // VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY 已弃用，PUBLIC + TRUSTED + PRESENTATION 组合可让 App 接收输入
         @SuppressLint("WrongConstant") val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
                 (1 shl 10) // VIRTUAL_DISPLAY_FLAG_TRUSTED
         virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags)
+        // 尝试将虚拟屏内容投放到物理副屏(如果存在 1920×720 副屏)
+        if (useVirtualLayout) {
+            mirrorToSecondaryDisplay()
+        }
         checkAndRunActiveMode()
+    }
+
+    /**
+     * 将虚拟屏内容投放到物理副屏(如果存在)。
+     * 车机双屏场景: 主屏 1920×1080 运行 miao, 副屏 1920×720 显示虚拟屏内容。
+     * 通过 Presentation 在副屏上显示一个全屏 SurfaceView, 其 Surface
+     * 同时作为虚拟屏的渲染目标, 从而实现"投放"。
+     */
+    private var secondaryPresentation: Presentation? = null
+    private fun mirrorToSecondaryDisplay() {
+        try {
+            val dm = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            // 查找副物理屏(非 Display 0)
+            val secondary: Display? = dm.displays.firstOrNull { it.displayId != 0 }
+            if (secondary == null) {
+                Log.i("Miao", "No secondary display found, virtual screen stays on primary only")
+                return
+            }
+            Log.i("Miao", "Secondary display found: id=${secondary.displayId} ${secondary.width}x${secondary.height}")
+            // 在副屏上创建 Presentation, 内含一个全屏 SurfaceView,
+            // 将该 Surface 设置为虚拟屏的渲染目标
+            secondaryPresentation?.dismiss()
+            val pres = object : Presentation(this, secondary) {
+                override fun onCreate(savedInstanceState: Bundle?) {
+                    super.onCreate(savedInstanceState)
+                    val sv = SurfaceView(context).apply {
+                        layoutParams = FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                        )
+                        holder.addCallback(object : SurfaceHolder.Callback {
+                            override fun surfaceCreated(holder: SurfaceHolder) {
+                                try {
+                                    val m = VirtualDisplay::class.java
+                                        .getMethod("setSurface", android.view.Surface::class.java)
+                                    m.invoke(virtualDisplay, holder.surface)
+                                    Log.i("Miao", "Virtual display surface mirrored to secondary")
+                                } catch (e: Exception) {
+                                    Log.e("Miao", "Mirror surface to secondary failed: ${e.message}")
+                                }
+                            }
+                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+                            override fun surfaceDestroyed(holder: SurfaceHolder) {}
+                        })
+                    }
+                    val root = FrameLayout(context).apply {
+                        setBackgroundColor(Color.BLACK)
+                        addView(sv)
+                    }
+                    setContentView(root)
+                }
+            }
+            pres.show()
+            secondaryPresentation = pres
+        } catch (e: Exception) {
+            Log.e("Miao", "mirrorToSecondaryDisplay failed: ${e.message}")
+        }
     }
     
     override fun onDestroy() {
@@ -1232,6 +1364,10 @@ class MainActivity : AppCompatActivity() {
         // 释放 VirtualDisplay
         try { virtualDisplay?.release() } catch (e: Exception) {}
         virtualDisplay = null
+
+        // 销毁副屏 Presentation
+        try { secondaryPresentation?.dismiss() } catch (e: Exception) {}
+        secondaryPresentation = null
 
         // 销毁 HintPresentation
         try { hintPresentation?.dismiss() } catch (e: Exception) {}

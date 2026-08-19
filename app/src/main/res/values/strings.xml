@@ -9,6 +9,7 @@
     <string name="settings_title">Miao Cluster Settings</string>
     <string name="style_double">左右双翼</string>
     <string name="style_single">左侧单翼</string>
+    <string name="style_virtual">虚拟屏</string>
     <string name="pick_app">▶ 选择内嵌应用</string>
     <string name="mode_display">仅显示</string>
     <string name="mode_carplay">CarPlay</string>

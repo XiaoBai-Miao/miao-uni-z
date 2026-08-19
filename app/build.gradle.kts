@@ -10,8 +10,8 @@ android {
         applicationId = "com.example.miao"
         minSdk = 28
         targetSdk = 37
-        versionCode = 20
-        versionName = "1.9.10"
+        versionCode = 21
+        versionName = "1.9.11"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
