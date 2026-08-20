@@ -16,6 +16,10 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // platform.jks 为系统签名私钥，已被 .gitignore 排除、不入库。
+    // CI 等无密钥环境：hasPlatformKey=false，回退到默认 debug 签名，保证可编译打包。
+    val hasPlatformKey = file("platform.jks").exists()
+
     signingConfigs {
         create("platform") {
             storeFile = file("platform.jks")
@@ -33,7 +37,8 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("platform")
+            // 无 platform.jks（如 CI）时回退到默认 debug 签名，保证可编译打包
+            signingConfig = if (hasPlatformKey) signingConfigs.getByName("platform") else signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -41,7 +46,7 @@ android {
             )
         }
         debug {
-            signingConfig = signingConfigs.getByName("platform")
+            signingConfig = if (hasPlatformKey) signingConfigs.getByName("platform") else null
         }
     }
     compileOptions {
