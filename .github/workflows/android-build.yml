@@ -21,10 +21,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: 'gradle'
 
@@ -38,8 +38,13 @@ jobs:
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           yes | sdkmanager --licenses >/dev/null
-          # compileSdk=37 为 Android 预览 API，platforms;android-37 仅存在于 dev/canary 通道
-          sdkmanager --channel=3 "platforms;android-37" "platform-tools" "build-tools;35.0.0"
+          # compileSdk=37 = Android 17 preview; only published in the canary channel, versioned
+          # (e.g. platforms;android-37.2-beta3). sdkmanager cannot resolve a bare "android-37",
+          # so pick the latest android-37 preview from canary (fallback to a known-good build).
+          LATEST37=$(sdkmanager --channel=3 --list 2>/dev/null | grep -oE 'platforms;android-37[0-9.\-]+' | sort -V | tail -1)
+          if [ -z "$LATEST37" ]; then LATEST37="platforms;android-37.2-beta3"; fi
+          echo "Resolved SDK platform: $LATEST37"
+          sdkmanager --channel=3 "$LATEST37" "platform-tools" "build-tools;35.0.0"
 
       - name: Build Release APK
         run: |
@@ -59,4 +64,4 @@ jobs:
         run: |
           gh release create "${{ github.ref_name }}" app/build/outputs/apk/release/*.apk \
             --title "Miao Release ${{ github.ref_name }}" \
-            --notes "自动编译生成的 APK。分支/标签：${{ github.ref_name }} 提交：${{ github.sha }}"
+            --notes "Auto-built APK. branch/tag: ${{ github.ref_name }}  commit: ${{ github.sha }}"
