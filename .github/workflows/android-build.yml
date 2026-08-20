@@ -38,7 +38,8 @@ jobs:
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           yes | sdkmanager --licenses >/dev/null
-          sdkmanager "platform-tools" "build-tools;35.0.0" "platforms;android-37"
+          # compileSdk=37 为 Android 预览 API，platforms;android-37 仅存在于 dev/canary 通道
+          sdkmanager --channel=3 "platforms;android-37" "platform-tools" "build-tools;35.0.0"
 
       - name: Build Release APK
         run: |
