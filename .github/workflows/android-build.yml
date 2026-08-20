@@ -35,30 +35,15 @@ jobs:
           curl -fsSL -o /tmp/cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
           unzip -q /tmp/cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           yes | sdkmanager --licenses >/dev/null
           sdkmanager "platform-tools" "build-tools;35.0.0" "platforms;android-37"
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      - name: Decode Keystore (optional, from secrets.SIGNING_KEY)
-        if: ${{ secrets.SIGNING_KEY != '' }}
-        env:
-          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY }}
-        run: |
-          echo "$SIGNING_KEY_BASE64" | base64 --decode > app/platform.jks
-          if [ ! -s app/platform.jks ]; then echo "Keystore is empty!"; exit 1; fi
-
       - name: Build Release APK
-        run: ./gradlew assembleRelease --no-daemon
-
-      - name: Get Version Name
-        id: get_version
         run: |
-          VERSION_NAME=$(grep "versionName =" app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          echo "VERSION=$VERSION_NAME" >> "$GITHUB_ENV"
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
 
       - name: Upload Release Artifact
         uses: actions/upload-artifact@v4
@@ -72,5 +57,5 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "${{ github.ref_name }}" app/build/outputs/apk/release/*.apk \
-            --title "Miao Release ${{ env.VERSION }}" \
-            --notes "自动编译生成的正式版系统签名 APK。分支/标签：${{ github.ref_name }} 提交：${{ github.sha }}"
+            --title "Miao Release ${{ github.ref_name }}" \
+            --notes "自动编译生成的 APK。分支/标签：${{ github.ref_name }} 提交：${{ github.sha }}"
