@@ -41,7 +41,7 @@ jobs:
           # compileSdk=37 = Android 17 preview; only published in the canary channel, versioned
           # (e.g. platforms;android-37.2-beta3). sdkmanager cannot resolve a bare "android-37",
           # so pick the latest android-37 preview from canary (fallback to a known-good build).
-          LATEST37=$(sdkmanager --channel=3 --list 2>/dev/null | grep -oE 'platforms;android-37[0-9.\-]+' | sort -V | tail -1)
+          LATEST37=$(sdkmanager --channel=3 --list 2>/dev/null | grep -oE 'platforms;android-37[0-9A-Za-z.\-]+' | sort -V | tail -1)
           if [ -z "$LATEST37" ]; then LATEST37="platforms;android-37.2-beta3"; fi
           echo "Resolved SDK platform: $LATEST37"
           sdkmanager --channel=3 "$LATEST37" "platform-tools" "build-tools;35.0.0"
