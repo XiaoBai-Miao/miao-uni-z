@@ -28,12 +28,16 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
+      - name: Install Android SDK
         run: |
-          yes | sdkmanager --licenses
+          ANDROID_HOME=$HOME/android-sdk
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+          curl -fsSL -o /tmp/cmdtools.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          unzip -q /tmp/cmdtools.zip -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          yes | sdkmanager --licenses >/dev/null
           sdkmanager "platform-tools" "build-tools;35.0.0" "platforms;android-37"
 
       - name: Grant execute permission for gradlew
@@ -64,15 +68,9 @@ jobs:
 
       - name: Create GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ github.ref_name }}
-          files: app/build/outputs/apk/release/*.apk
-          name: Miao Release ${{ env.VERSION }}
-          body: |
-            ## Miao Version ${{ env.VERSION }}
-            - 自动编译生成的正式版系统签名 APK。
-            - 推送分支/标签：${{ github.ref_name }}
-            - 提交哈希：${{ github.sha }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" app/build/outputs/apk/release/*.apk \
+            --title "Miao Release ${{ env.VERSION }}" \
+            --notes "自动编译生成的正式版系统签名 APK。分支/标签：${{ github.ref_name }} 提交：${{ github.sha }}"
