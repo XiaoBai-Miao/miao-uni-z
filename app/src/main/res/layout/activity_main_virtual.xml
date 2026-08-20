@@ -92,8 +92,8 @@
         </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- 虚拟屏预览区：左右各留 20dp 防误触，高度尽量大 -->
-    <FrameLayout
+    <!-- 虚拟屏预览区：左右各留 20dp 防误触，虚拟屏锁定 1920×720(8:3) 居中 -->
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/center_container"
         android:layout_width="0dp"
         android:layout_height="0dp"
@@ -108,16 +108,21 @@
 
         <FrameLayout
             android:id="@+id/center_card"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/wing_background">
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:background="@drawable/wing_background"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintDimensionRatio="1920:720">
 
             <SurfaceView
                 android:id="@+id/right_panel"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
         </FrameLayout>
-    </FrameLayout>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
     <!-- 底栏：功率 + 音乐卡片 -->
     <LinearLayout

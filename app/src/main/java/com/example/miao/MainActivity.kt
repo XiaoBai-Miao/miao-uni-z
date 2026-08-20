@@ -37,6 +37,7 @@ import android.view.Display
 import android.view.Gravity
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -44,6 +45,15 @@ import android.view.ViewOutlineProvider
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.OvershootInterpolator
+import android.graphics.SurfaceTexture
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.EGLContext
+import android.opengl.EGLDisplay
+import android.opengl.EGLSurface
+import android.opengl.GLES20
+import android.opengl.GLES11Ext
+import android.os.HandlerThread
 import android.widget.ArrayAdapter
 import androidx.core.content.ContextCompat
 import android.widget.Button
@@ -90,7 +100,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var surfaceView: SurfaceView
     private lateinit var divider: View
     private lateinit var centerCard: FrameLayout
-    private lateinit var centerContainer: FrameLayout
+    private lateinit var centerContainer: ViewGroup
     private lateinit var rightSidePanel: View
     
     private lateinit var musicCard: View
@@ -444,11 +454,16 @@ class MainActivity : AppCompatActivity() {
         val metrics = DisplayMetrics()
         @Suppress("DEPRECATION") wm.defaultDisplay.getMetrics(metrics)
         val screenWidth = metrics.widthPixels
-        
+        val screenHeight = metrics.heightPixels
+
         val params = WindowManager.LayoutParams().apply {
             width = 80; height = 80; type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE; format = PixelFormat.TRANSLUCENT
-            gravity = Gravity.TOP or Gravity.START; x = 5; y = 400
+            gravity = Gravity.TOP or Gravity.START
+            if (useVirtualLayout) {
+                // 虚拟屏模式：锁在右下角，避免悬浮球盖住虚拟屏（防遮挡/防误触）
+                x = screenWidth - 90; y = screenHeight - 130
+            } else { x = 5; y = 400 }
         }
         val ball = FrameLayout(getPrimaryContext()).apply {
             background = ContextCompat.getDrawable(context, R.drawable.bg_floating_ball)
@@ -459,6 +474,10 @@ class MainActivity : AppCompatActivity() {
             }
             addView(icon)
         }
+        if (useVirtualLayout) {
+            // 虚拟屏模式：悬浮球仅作设置入口，固定右下角、禁拖动，避免影响虚拟屏
+            ball.setOnClickListener { if (currentSettingsOverlay != null) closeSettingsMenu() else showOverlaySettings() }
+        } else {
         ball.setOnTouchListener(object : View.OnTouchListener {
             private var ix: Int = 0; private var iy: Int = 0; private var tx: Float = 0f; private var ty: Float = 0f; private var moved = false
             override fun onTouch(v: View, e: MotionEvent): Boolean {
@@ -485,6 +504,7 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
         })
+        }
         try { wm.addView(ball, params); floatingBall = ball } catch (ex: Exception) {}
     }
 
@@ -724,16 +744,18 @@ class MainActivity : AppCompatActivity() {
         surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
             override fun surfaceCreated(h: SurfaceHolder) {
                 if (virtualDisplay == null) createVirtualDisplay(h)
-                else { 
-                    try { 
+                else {
+                    try {
+                        // 虚拟屏模式且复制器就绪：保持渲染目标为 SurfaceTexture(producer)，主屏+HDMI 由 GLES 复制
+                        val target = if (useVirtualLayout) hdmiMirrorer?.producerSurface ?: h.surface else h.surface
                         val m = VirtualDisplay::class.java.getMethod("setSurface", android.view.Surface::class.java)
-                        m.invoke(virtualDisplay, h.surface)
-                        if (currentRunningPackage == null) checkAndRunActiveMode() 
-                    } catch (e: Exception) { 
+                        m.invoke(virtualDisplay, target)
+                        if (currentRunningPackage == null) checkAndRunActiveMode()
+                    } catch (e: Exception) {
                         virtualDisplay?.release()
-                        createVirtualDisplay(h) 
-                    } 
-                } 
+                        createVirtualDisplay(h)
+                    }
+                }
             }
             override fun surfaceChanged(h: SurfaceHolder, f: Int, w: Int, hi: Int) { updateVirtualDisplaySize() }
             override fun surfaceDestroyed(h: SurfaceHolder) {} 
@@ -1279,20 +1301,44 @@ class MainActivity : AppCompatActivity() {
         @SuppressLint("WrongConstant") val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION or
                 (1 shl 10) // VIRTUAL_DISPLAY_FLAG_TRUSTED
-        virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags)
-        // 尝试将虚拟屏内容投放到物理副屏(如果存在 1920×720 副屏)
+
         if (useVirtualLayout) {
+            // 虚拟屏模式：渲染进 SurfaceTexture，再由 GLES 把同一帧复制到 主屏(surfaceView) + HDMI 两个 Surface。
+            // 这样主屏虚拟屏与 HDMI 同时显示（真正的"复制"），而非旧版 setSurface 把渲染目标改挂 HDMI 导致主屏变空。
+            if (ensureHdmiMirrorer(h.surface)) {
+                virtualDisplay = dm.createVirtualDisplay("Miao 虚拟屏", w, hi, 160, hdmiMirrorer!!.producerSurface!!, flags)
+                mirrorToSecondaryDisplay()
+            } else {
+                // GLES 复制器初始化失败：回退到旧行为（surface 直接给虚拟屏，mirror 把渲染目标移动/复制到 HDMI）
+                Log.e("Miao", "HdmiMirrorer 不可用，回退旧 mirror 行为")
+                virtualDisplay = dm.createVirtualDisplay("Miao 虚拟屏", w, hi, 160, h.surface, flags)
+                mirrorToSecondaryDisplay()
+            }
+        } else {
+            virtualDisplay = dm.createVirtualDisplay("HDMI 屏幕", w, hi, 160, h.surface, flags)
             mirrorToSecondaryDisplay()
         }
         checkAndRunActiveMode()
     }
 
     /**
-     * 将虚拟屏内容投放到物理副屏(如果存在)。
-     * 车机双屏场景: 主屏 1920×1080 运行 miao, 副屏 1920×720 显示虚拟屏内容。
-     * 通过 Presentation 在副屏上显示一个全屏 SurfaceView, 其 Surface
-     * 同时作为虚拟屏的渲染目标, 从而实现"投放"。
+     * 初始化（或复用）虚拟屏双路复制器。主屏 surface 作为首个输出（GLES 直接画到主屏 surfaceView），
+     * HDMI 输出在 [mirrorToSecondaryDisplay] 发现副屏后再追加。
+     * @return true=复制器就绪；false=初始化失败（调用方应回退旧行为）
      */
+    private fun ensureHdmiMirrorer(mainSurface: Surface): Boolean {
+        if (hdmiMirrorer != null) return hdmiMirrorer!!.isReady
+        hdmiMirrorer = HdmiMirrorer()
+        val ok = hdmiMirrorer!!.init(mainSurface)
+        if (!ok) {
+            Log.e("Miao", "HdmiMirrorer init failed, fallback to move-surface HDMI")
+            hdmiMirrorer = null
+        }
+        return ok
+    }
+
+    // 虚拟屏 → 主屏 + HDMI 双路 GLES 复制器（虚拟模式专用）
+    private var hdmiMirrorer: HdmiMirrorer? = null
     private var secondaryPresentation: Presentation? = null
     private fun mirrorToSecondaryDisplay() {
         try {
@@ -1304,8 +1350,9 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             Log.i("Miao", "Secondary display found: id=${secondary.displayId} ${secondary.width}x${secondary.height}")
-            // 在副屏上创建 Presentation, 内含一个全屏 SurfaceView,
-            // 将该 Surface 设置为虚拟屏的渲染目标
+            // 在副屏上创建 Presentation, 内含一个全屏 SurfaceView, 其 Surface 作为 HDMI 输出。
+            // 虚拟模式下把它追加为 GLES 复制器的第二路输出（主屏虚拟屏 + HDMI 同时显示）；
+            // 回退模式下则把虚拟屏渲染目标改挂到该 Surface（旧行为：主屏变空）。
             secondaryPresentation?.dismiss()
             val pres = object : Presentation(this, secondary) {
                 override fun onCreate(savedInstanceState: Bundle?) {
@@ -1318,10 +1365,16 @@ class MainActivity : AppCompatActivity() {
                         holder.addCallback(object : SurfaceHolder.Callback {
                             override fun surfaceCreated(holder: SurfaceHolder) {
                                 try {
-                                    val m = VirtualDisplay::class.java
-                                        .getMethod("setSurface", android.view.Surface::class.java)
-                                    m.invoke(virtualDisplay, holder.surface)
-                                    Log.i("Miao", "Virtual display surface mirrored to secondary")
+                                    if (hdmiMirrorer != null) {
+                                        hdmiMirrorer!!.addOutput(holder.surface)
+                                        Log.i("Miao", "Virtual display copied to HDMI via GLES mirrorer")
+                                    } else {
+                                        // 回退：直接把虚拟屏渲染目标改挂到 HDMI（主屏变空）
+                                        val m = VirtualDisplay::class.java
+                                            .getMethod("setSurface", android.view.Surface::class.java)
+                                        m.invoke(virtualDisplay, holder.surface)
+                                        Log.i("Miao", "Virtual display surface mirrored to secondary (fallback)")
+                                    }
                                 } catch (e: Exception) {
                                     Log.e("Miao", "Mirror surface to secondary failed: ${e.message}")
                                 }
@@ -1360,6 +1413,10 @@ class MainActivity : AppCompatActivity() {
         // 注销 MediaSession 回调
         try { activeMediaController?.unregisterCallback(mediaCallback) } catch (e: Exception) {}
         activeMediaController = null
+
+        // 释放 GLES 双路复制器（虚拟屏→主屏+HDMI）
+        try { hdmiMirrorer?.release() } catch (e: Exception) {}
+        hdmiMirrorer = null
 
         // 释放 VirtualDisplay
         try { virtualDisplay?.release() } catch (e: Exception) {}
@@ -1412,6 +1469,191 @@ class MainActivity : AppCompatActivity() {
             instance?.updateActiveMediaSession()
         }
     }
+    /**
+     * 虚拟屏双路复制器：虚拟屏渲染进 SurfaceTexture，再用 GLES 把同一帧同时画到
+     * 主屏 surfaceView 与 HDMI Presentation 两个 Surface，实现"主屏显示 + 复制一份到 HDMI"。
+     * 依赖 EGL/GLES；若 EGL 初始化失败，调用方回退到旧 setSurface 行为（主屏变空、HDMI 仍显示）。
+     */
+    @SuppressLint("NewApi")
+    private class HdmiMirrorer {
+        private var eglDisplay: EGLDisplay? = null
+        private var eglContext: EGLContext? = null
+        private var eglConfig: EGLConfig? = null
+        private var pbufSurface: EGLSurface? = null
+        private var textureId = 0
+        private var surfaceTexture: SurfaceTexture? = null
+        private var producer: Surface? = null
+        private val outputs = ArrayList<EGLSurface>()
+        private var program = 0
+        private var aPos = 0
+        private var aTex = 0
+        private var uSTM = 0
+        private var uTex = 0
+        private val stm = FloatArray(16)
+        private val quadPos = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
+        private val quadTex = floatArrayOf(0f, 0f, 1f, 0f, 0f, 1f, 1f, 1f)
+        private var thread: HandlerThread? = null
+        private var handler: Handler? = null
+        private var released = false
+
+        val isReady: Boolean get() = producer != null
+        val producerSurface: Surface? get() = producer
+
+        fun init(mainSurface: Surface): Boolean {
+            if (!initEgl()) return false
+            textureId = createTexture()
+            surfaceTexture = SurfaceTexture(textureId)
+            producer = Surface(surfaceTexture)
+            addOutput(mainSurface)
+            thread = HandlerThread("MiaoHdmiMirror").also { it.start() }
+            handler = Handler(thread!!.looper)
+            // 监听器在 handler 就绪后再注册，确保首帧回调必定能 post 到合成线程
+            surfaceTexture?.setOnFrameAvailableListener { handler?.post { drawFrame() } }
+            Log.i("Miao", "HdmiMirrorer EGL ready, main output added")
+            return true
+        }
+
+        private fun initEgl(): Boolean {
+            try {
+                eglDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+                if (eglDisplay == EGL14.EGL_NO_DISPLAY) return false
+                val vers = IntArray(2)
+                if (!EGL14.eglInitialize(eglDisplay, vers, 0, vers, 1)) return false
+                val attrs = intArrayOf(
+                    EGL14.EGL_RED_SIZE, 8,
+                    EGL14.EGL_GREEN_SIZE, 8,
+                    EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_ALPHA_SIZE, 8,
+                    EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                    EGL14.EGL_NONE
+                )
+                val configs = arrayOfNulls<EGLConfig>(1)
+                val num = IntArray(1)
+                if (!EGL14.eglChooseConfig(eglDisplay, attrs, 0, configs, 0, 1, num, 0) || num[0] == 0) return false
+                eglConfig = configs[0] ?: return false
+                val ctxAttrs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
+                eglContext = EGL14.eglCreateContext(eglDisplay, eglConfig, EGL14.EGL_NO_CONTEXT, ctxAttrs, 0)
+                if (eglContext == EGL14.EGL_NO_CONTEXT) return false
+                val pbufAttrs = intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE)
+                pbufSurface = EGL14.eglCreatePbufferSurface(eglDisplay, eglConfig, pbufAttrs, 0)
+                if (pbufSurface == EGL14.EGL_NO_SURFACE) return false
+                if (!EGL14.eglMakeCurrent(eglDisplay, pbufSurface, pbufSurface, eglContext)) return false
+                buildProgram()
+                return true
+            } catch (e: Exception) {
+                Log.e("Miao", "HdmiMirrorer initEgl failed: ${e.message}")
+                return false
+            }
+        }
+
+        private fun createTexture(): Int {
+            val tex = IntArray(1)
+            GLES20.glGenTextures(1, tex, 0)
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0])
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            return tex[0]
+        }
+
+        private fun buildProgram() {
+            val vs = "attribute vec2 aPos; attribute vec2 aTex; uniform mat4 uSTMatrix; varying vec2 vTex; void main(){ gl_Position = vec4(aPos, 0.0, 1.0); vTex = (uSTMatrix * vec4(aTex, 0.0, 1.0)).xy; }"
+            val fs = "#extension GL_OES_EGL_image_external : require\nprecision mediump float; uniform samplerExternalOES uTex; varying vec2 vTex; void main(){ gl_FragColor = texture2D(uTex, vTex); }"
+            program = createProgram(vs, fs)
+            aPos = GLES20.glGetAttribLocation(program, "aPos")
+            aTex = GLES20.glGetAttribLocation(program, "aTex")
+            uSTM = GLES20.glGetUniformLocation(program, "uSTMatrix")
+            uTex = GLES20.glGetUniformLocation(program, "uTex")
+        }
+
+        private fun createProgram(vs: String, fs: String): Int {
+            val v = compile(GLES20.GL_VERTEX_SHADER, vs)
+            val f = compile(GLES20.GL_FRAGMENT_SHADER, fs)
+            val p = GLES20.glCreateProgram()
+            GLES20.glAttachShader(p, v); GLES20.glAttachShader(p, f)
+            GLES20.glLinkProgram(p)
+            if (GLES20.glGetProgramParameteri(p, GLES20.GL_LINK_STATUS) == 0)
+                Log.e("Miao", "HdmiMirrorer program link log: ${GLES20.glGetProgramInfoLog(p)}")
+            return p
+        }
+
+        private fun compile(type: Int, src: String): Int {
+            val s = GLES20.glCreateShader(type)
+            GLES20.glShaderSource(s, src)
+            GLES20.glCompileShader(s)
+            if (GLES20.glGetShaderParameteri(s, GLES20.GL_COMPILE_STATUS) == 0)
+                Log.e("Miao", "HdmiMirrorer shader log: ${GLES20.glGetShaderInfoLog(s)}")
+            return s
+        }
+
+        fun addOutput(surface: Surface) {
+            // 统一投递到 GLES 合成线程，避免与 drawFrame 并发访问 outputs 造成竞态
+            if (handler != null) handler!!.post { addOutputOnThread(surface) }
+            else addOutputOnThread(surface)
+        }
+
+        private fun addOutputOnThread(surface: Surface) {
+            if (eglDisplay == null || eglConfig == null || released) return
+            try {
+                val surf = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, surface, intArrayOf(EGL14.EGL_NONE), 0)
+                if (surf == EGL14.EGL_NO_SURFACE) {
+                    Log.e("Miao", "HdmiMirrorer eglCreateWindowSurface failed")
+                    return
+                }
+                outputs.add(surf)
+                Log.i("Miao", "HdmiMirrorer output added (total=${outputs.size})")
+            } catch (e: Exception) {
+                Log.e("Miao", "HdmiMirrorer addOutput failed: ${e.message}")
+            }
+        }
+
+        private fun drawFrame() {
+            if (released || eglDisplay == null || eglContext == null || surfaceTexture == null || outputs.isEmpty()) return
+            try {
+                if (!EGL14.eglMakeCurrent(eglDisplay, outputs[0], outputs[0], eglContext)) return
+                surfaceTexture!!.updateTexImage()
+                surfaceTexture!!.getTransformMatrix(stm)
+                GLES20.glUseProgram(program)
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+                GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId)
+                GLES20.glUniform1i(uTex, 0)
+                GLES20.glUniformMatrix4fv(uSTM, 1, false, stm, 0)
+                GLES20.glEnableVertexAttribArray(aPos)
+                GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, quadPos)
+                GLES20.glEnableVertexAttribArray(aTex)
+                GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 0, quadTex)
+                for (surf in outputs) {
+                    if (!EGL14.eglMakeCurrent(eglDisplay, surf, surf, eglContext)) continue
+                    val w = IntArray(1); val h = IntArray(1)
+                    EGL14.eglQuerySurface(eglDisplay, surf, EGL14.EGL_WIDTH, w, 0)
+                    EGL14.eglQuerySurface(eglDisplay, surf, EGL14.EGL_HEIGHT, h, 0)
+                    GLES20.glViewport(0, 0, w[0], h[0])
+                    GLES20.glClearColor(0f, 0f, 0f, 1f)
+                    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+                    GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                    EGL14.eglSwapBuffers(eglDisplay, surf)
+                }
+            } catch (e: Exception) {
+                Log.e("Miao", "HdmiMirrorer drawFrame failed: ${e.message}")
+            }
+        }
+
+        fun release() {
+            released = true
+            try { thread?.quitSafely() } catch (_: Exception) {}
+            try {
+                EGL14.eglMakeCurrent(eglDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+                for (surf in outputs) EGL14.eglDestroySurface(eglDisplay, surf)
+                if (pbufSurface != null) EGL14.eglDestroySurface(eglDisplay, pbufSurface)
+                if (eglContext != null) EGL14.eglDestroyContext(eglDisplay, eglContext)
+                if (eglDisplay != null) EGL14.eglTerminate(eglDisplay)
+            } catch (_: Exception) {}
+            surfaceTexture?.release()
+            producer?.release()
+        }
+    }
+
     class HintPresentation(c: Context, private val targetDisplay: Display) : Presentation(c, targetDisplay) {
         private fun dpToPx(dp: Int): Int =
             (dp * context.resources.displayMetrics.density).toInt()
